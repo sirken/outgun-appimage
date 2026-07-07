@@ -1,0 +1,13 @@
+; This file will be rewritten when you first run Outgun and select the bug
+; reporting mode. If you can't run the client, i.e. if you are only running
+; a text mode server, please see languages/splash.en.txt, or an appropriate
+; other language.
+
+; You can enable complete bug reporting by uncommenting the following line:
+;autobugreporting complete
+
+; You can enable minimal bug reporting by uncommenting the following line:
+;autobugreporting minimal
+
+; Automatic bug reporting is by default disabled so you don't have to do
+; anything to retain that.

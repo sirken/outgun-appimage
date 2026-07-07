@@ -1,0 +1,68 @@
+; 07/03/2017
+
+P width 3
+P height 4
+P title Pari
+P author Nosferatu
+S 16 12
+
+flag 0 0 0 8 6
+spawn 0 0 0 2 4
+spawn 0 0 0 6 4
+spawn 0 0 0 10 4
+spawn 0 0 0 14 4
+spawn 0 0 0 2 8
+spawn 0 0 0 6 8
+spawn 0 0 0 10 8
+spawn 0 0 0 14 8
+
+flag  1 2 3 8 6
+spawn 1 2 3 2 4
+spawn 1 2 3 6 4
+spawn 1 2 3 10 4
+spawn 1 2 3 14 4
+spawn 1 2 3 2 8
+spawn 1 2 3 6 8
+spawn 1 2 3 10 8
+spawn 1 2 3 14 8
+
+X room 0 0 2 3
+X top 0 0 1 0
+X top 2 1
+X bottom 1 3 2 3
+X bottom 0 2
+X left 0 0 0 2
+X left 1 1
+X left 1 3
+X left 2 2
+X right 2 1 2 3
+X right 0 1
+X right 1 0
+X right 1 2
+X block 0 3
+X block 2 0
+
+:room
+  W  0  0  1  3
+  W  0  0  3  1
+  W 16  0 15  3
+  W 16  0 13  1
+  W  0 12  1  9
+  W  0 12  3 11
+  W 16 12 15  9
+  W 16 12 13 11
+
+:top
+  W  0  0 16  1
+
+:bottom
+  W  0 12 16 11
+
+:left
+  W  0  3  1  9
+
+:right
+  W 16  3 15  9
+
+:block
+  W  0  0 16 12

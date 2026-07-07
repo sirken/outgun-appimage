@@ -1,0 +1,24 @@
+:room
+C W 0 0 2
+C W 16 0 2
+C W 0 12 2
+C W 16 12 2
+
+:top
+C W 4 0 2
+C W 8 0 2
+C W 12 0 2
+
+:bottom
+C W 4 12 2
+C W 8 12 2
+C W 12 12 2
+
+:left
+C W 0 4 2
+C W 0 8 2
+
+:right
+C W 16 4 2
+C W 16 8 2
+

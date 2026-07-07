@@ -1,0 +1,51 @@
+Para mais informações acesse estas fontes:
+ 
+ Documentação do jogo        diretório 'doc'
+ Site finlandês do Outgun    http://outgun.mbnet.fi/
+ Site brasileiro do Outgun   http://outgun.sf.net/
+ 
+Controles
+ 
+ Mover                Setas ou teclado numérico
+ Atirar               Control
+ Correr               Shift
+ Esquivar             Alt ou Alt Gr
+ 
+Outras teclas
+ 
+ Conversar            Digite sua mensagem e aperte Enter
+ Conversar com o time Comece sua mensagem com um ponto ('.')
+ Mudar de time        Control + End
+ Suicídio             Delete
+ Soltar bandeira      Page Down
+ Lista de mapas       F2
+ Estat. dos times     F3
+ Estat. dos jogadores F4
+ Inform. do servidor  F5
+ Mudar de mapa        F8
+ Captura de tela      F11
+ Mostrar mensagens    Insert
+ 
+Conceito do jogo
+ 
+ Você é um membro de um time, vermelho ou azul, definido ao acaso quando você se conectar. Seu objetivo é ajudar seu time a vencer, capturando a bandeira inimiga. Para capturar a bandeira, um membro do seu time deve roubar a bandeira inimiga e trazê-la para a bandeira do seu time, desde que também não tenha sido roubada! Capiche?
+ 
+Vida e energia
+ 
+ Se sua vida cai para zero, você morre. A energia é usada para correr, atirar e proteção de vida quando você tem o poder do escudo (você saberá quando vê-lo). Vida e energia se regeneram até 200 com o tempo.
+ 
+Minimapa
+ 
+ No canto superior direito da tela está o minimapa. Ele mostra seus companheiros de time e os adversários vistos por eles. Se você tem o poder da sombra, mostra todos os oponentes que não tenham a sombra eles mesmos.
+ 
+Poderes
+ 
+ Se você vir um item deitado no chão, agarre-o. É um item especial de poder.
+ 
+ Weapon upgrade  Um foguete adicional e mais energia
+ Turbo           Mais velocidade
+ Shadow          Invisibilidade, ver oponentes no minimapa
+ Power           Seus tiros causam mais dano
+ Megahealth      Mais vida e energia
+ Shield          Sua vida é protegida enquanto o escudo durar
+ Deathbringer    Causa dano aos jogadores na mesma sala quando morrer

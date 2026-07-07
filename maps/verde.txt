@@ -1,0 +1,50 @@
+; 10/03/2017
+
+P width 3
+P height 5
+P title Verde
+P author Nosferatu
+S 16 12
+
+flag 0 0 0 8 6
+flag 1 2 4 8 6
+flag 2 1 2 8 6
+spawn 0 1 2 8 6
+spawn 1 1 2 8 6
+
+X room 0 0 2 4
+X top 0 0 1 0
+X top 2 2
+X bottom 0 2
+X bottom 1 4 2 4
+X left 0 0 0 2
+X left 1 3 1 4
+X right 1 0 1 1
+X right 2 2 2 4
+X block 0 3 0 4
+X block 2 0 2 1
+
+:room
+  W  0  0  1  3
+  W  0  0  3  1
+  W 16  0 15  3
+  W 16  0 13  1
+  W  0 12  1  9
+  W  0 12  3 11
+  W 16 12 15  9
+  W 16 12 13 11
+
+:top
+  W  0  0 16  1
+
+:bottom
+  W  0 12 16 11
+
+:left
+  W  0  0  1 12
+
+:right
+  W 16  0 15 12
+
+:block
+  W  0  0 16 12

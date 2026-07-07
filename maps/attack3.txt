@@ -1,0 +1,66 @@
+P width  2
+P height 4
+P title  Attack3
+P author shadow
+S 16 12
+
+flag  0 1 0  8  6
+spawn 0 1 0  8  6
+spawn 0 1 0 11  9
+spawn 0 1 0  5  9
+spawn 0 1 0 11  3
+spawn 0 1 0  5  3
+spawn 0 1 0  2  6
+spawn 0 1 0 14  6
+spawn 0 1 0  8  9
+spawn 0 1 0  8  3
+spawn 0 1 0 11  6
+spawn 0 1 0  5  6
+spawn 0 1 0 14  9
+spawn 0 1 0  2  9
+spawn 0 1 0 14  3
+spawn 0 1 0  2  3
+
+flag  1 0 3  8  6
+spawn 1 0 3  8  6
+spawn 1 0 3  5  3
+spawn 1 0 3 11  3
+spawn 1 0 3  5  9
+spawn 1 0 3 11  9
+spawn 1 0 3 14  6
+spawn 1 0 3  2  6
+spawn 1 1 3  8  3
+spawn 1 0 3  8  9
+spawn 1 0 3  5  6
+spawn 1 0 3 11  6
+spawn 1 0 3  2  3
+spawn 1 0 3 14  3
+spawn 1 0 3  2  9
+spawn 1 0 3 14  9
+
+X cima 0 0 1 0
+X baixo 0 3 
+X baixo 1 3
+X all 0 0 1 3
+:cima
+W 0 0 16 0.7
+W 0 0 4 0.7
+
+:baixo
+W 0 11.3 16 12 
+
+:dir
+W 15 0 16 12
+
+:esq
+W 0 0 1 16
+
+:all
+W 0 0 4 0.7
+W 0 0 1 3
+W 12 0 16 0.7
+W 15 0 16 3
+W 0 9 1 12
+W 0 11.3 4 12
+W 12 11.3 16 12
+W 15 9 16 12 

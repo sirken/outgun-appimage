@@ -1,0 +1,4 @@
+outgun.mbnet.fi
+77.240.20.102
+/servers/
+/servers/submit.php

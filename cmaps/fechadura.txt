@@ -1,0 +1,96 @@
+P width 4
+P height 3
+P title Fechadura
+P author Cebs
+S 16 12
+
+flag  1 0 0  8  6
+spawn 1 0 0  8  6
+spawn 1 0 0 11  9
+spawn 1 0 0  5  9
+spawn 1 0 0 11  3
+spawn 1 0 0  5  3
+spawn 1 0 0  2  6
+spawn 1 0 0 14  6
+spawn 1 0 0  8  9
+spawn 1 0 0  8  3
+spawn 1 0 0 11  6
+spawn 1 0 0  5  6
+spawn 1 0 0 14  9
+spawn 1 0 0  2  9
+spawn 1 0 0 14  3
+spawn 1 0 0  2  3
+
+flag  0 3 0  8  6
+spawn 0 3 0  8  6
+spawn 0 3 0  5  3
+spawn 0 3 0 11  3
+spawn 0 3 0  5  9
+spawn 0 3 0 11  9
+spawn 0 3 0 14  6
+spawn 0 3 0  2  6
+spawn 0 3 0  8  3
+spawn 0 3 0  8  9
+spawn 0 3 0  5  6
+spawn 0 3 0 11  6
+spawn 0 3 0  2  3
+spawn 0 3 0 14  3
+spawn 0 3 0  2  9
+spawn 0 3 0 14  9
+
+X cima 0 0 3 0
+X baixo 0 2 
+X baixo 1 2
+X baixo 2 2 
+X baixo 2 2 
+X baixo 3 2 
+X esq  0 0
+X esq  0 1
+X esq  0 2
+X dir  3 0
+X dir  3 1
+X dir  3 2
+X all 0 0 3 2
+X meioesq 1 0
+X meiodir 2 0
+X centroesq 1 1
+X centrodir 2 1
+
+:cima
+W 0 0 16 0.7
+W 0 0 4 0.7
+
+:baixo
+W 0 11.3 16 12 
+
+:dir
+W 15 0 16 12
+
+:esq
+W 0 0 1 16
+
+:all
+W 0 0 4 0.7
+W 0 0 1 3
+W 12 0 16 0.7
+W 15 0 16 3
+W 0 9 1 12
+W 0 11.3 4 12
+W 12 11.3 16 12
+W 15 9 16 12
+
+:meioesq 
+W 15 0 16 5 
+W 15 7 16 12
+
+:meiodir
+W 0 0 1 5
+W 0 7 1 12
+
+:centroesq
+W 15 0 16 4 
+W 15 8 16 12
+
+:centrodir
+W 0 0 1 4
+W 0 8 1 12

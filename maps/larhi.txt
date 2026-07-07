@@ -1,0 +1,44 @@
+; 2010-07-07
+P width 4
+P height 3
+P title Larhi
+P author Huntta
+
+S 16 12
+X room 0 0 3 2
+X top 0 0
+X left 0 0
+X top 1 0
+X top 2 0
+X top 3 0
+X right 3 0
+flag 1 0 1 8 6
+X left 0 1
+X right 1 1
+X left 2 1
+flag 0 3 1 8 6
+X right 3 1
+X bottom 0 2
+X left 0 2
+X bottom 1 2
+X bottom 2 2
+X bottom 3 2
+X right 3 2
+
+:room
+C W  3  3  5  2 270   0
+C W 13  3  5  2   0  90
+C W  3  9  5  2 180 270
+C W 13  9  5  2  90 180
+
+:top
+  W  0  0 16  1
+
+:bottom
+  W  0 12 16 11
+
+:left
+  W  0  3  1  9
+
+:right
+  W 16  3 15  9

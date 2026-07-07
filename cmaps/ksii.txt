@@ -1,0 +1,76 @@
+; 2010-11-30
+P title Ksii
+P author Huntta
+P width 4
+P height 4
+S 16 12
+
+flag 0 3 1 8 6
+flag 0 3 2 8 6
+flag 1 0 1 8 6
+flag 1 0 2 8 6
+
+V respawn 2 1 1  0 6 16 12
+V respawn 2 2 1  0 6 16 12
+V respawn 2 1 2  0 6 16  0
+V respawn 2 2 2  0 6 16  0
+
+X room 0 0 3 3
+X top 0 0 3 0
+X top 1 2 2 2
+X bottom 0 3 3 3
+X bottom 1 1 2 1
+X left 0 0 0 3
+X left 1 1 1 2
+X left 3 1 3 2
+X right 3 0 3 3
+X right 2 1 2 2
+X right 0 1 0 2
+
+X top-small 1 1 2 1
+X top-small 1 3 2 3
+X top-small 0 1 0 3
+X top-small 3 1 3 3
+
+X bottom-small 1 2 2 2
+X bottom-small 1 0 2 0
+X bottom-small 0 0 0 2
+X bottom-small 3 0 3 2
+
+R 1 1
+  G  0 6 16 12  1
+
+R 2 1
+  G  0 6 16 12  1
+
+R 1 2
+  G  0 6 16  0  1
+
+R 2 2
+  G  0 6 16  0  1
+
+:room
+  W  0  0  1  1
+  W  0 12  1 11
+  W 16 12 15 11
+  W 16  0 15  1
+
+:top
+  W  1  0 15  1
+
+:bottom
+  W  1 12 15 11
+
+:left
+  W  0  1  1 11
+
+:right
+  W 16  1 15 11
+
+:top-small
+  W  1  0  5  1
+  W 15  0 11  1
+
+:bottom-small
+  W  1 12  5 11
+  W 15 12 11 11

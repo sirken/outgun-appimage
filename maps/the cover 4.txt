@@ -1,0 +1,51 @@
+; This map has been automatically converted from 0.8.5 format
+; with Mapconv (http://koti.mbnet.fi/npr/outgun/mapconv/)
+;
+; "P title The Cover 4- MM-coiote" fixed by Nosferatu
+
+V 1
+P title The Cover 4
+P author coiote
+P width 3
+P height 1
+
+flag  0  0  0 0.5 0.5
+spawn 0  0  0 0.3 0.4
+spawn 0  0  0 0.4 0.4
+spawn 0  0  0 0.5 0.4
+spawn 0  0  0 0.6 0.4
+spawn 0  0  0 0.7 0.4
+spawn 0  0  0 0.3 0.5
+spawn 0  0  0 0.4 0.5
+spawn 0  0  0 0.5 0.5
+flag  1  2  0 0.5 0.5
+spawn 1  2  0 0.3 0.4
+spawn 1  2  0 0.4 0.4
+spawn 1  2  0 0.5 0.4
+spawn 1  2  0 0.6 0.4
+spawn 1  2  0 0.7 0.4
+spawn 1  2  0 0.3 0.5
+spawn 1  2  0 0.4 0.5
+spawn 1  2  0 0.5 0.5
+
+R  0  0
+W 0 0 1 0.083
+W 0 0.083 0.063 1
+W 0.938 0.083 1 0.167
+W 0.938 0.833 1 1
+W 0.063 0.917 0.938 1
+
+R  1  0
+W 0 0 1 0.083
+W 0 0.083 0.063 0.167
+W 0.938 0.083 1 0.167
+W 0 0.833 0.063 1
+W 0.938 0.833 1 1
+W 0.063 0.917 0.938 1
+
+R  2  0
+W 0 0 1 0.083
+W 0 0.083 0.063 0.167
+W 0.938 0.083 1 1
+W 0 0.833 0.063 1
+W 0.063 0.917 0.938 1

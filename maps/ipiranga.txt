@@ -1,0 +1,52 @@
+; 06/06/2017
+
+P width 4
+P height 4
+P title Ipiranga
+P author Nosferatu
+S 16 12
+
+flag 0 0 3 8 6
+spawn 0 0 3 8 6
+
+flag 1 3 0 8 6
+spawn 1 3 0 8 6
+
+X room 0 0 3 3
+X top 1 0 3 0
+X top 0 1
+X bottom 0 3 2 3
+X bottom 3 2
+X left 0 1 0 3
+X left 1 0
+X left 2 1 2 2
+X right 3 0 3 2
+X right 2 3
+X right 1 1 1 2
+X block 0 0
+X block 3 3
+
+:room
+  W  0  0  1  3
+  W  0  0  3  1
+  W 16  0 15  3
+  W 16  0 13  1
+  W  0 12  1  9
+  W  0 12  3 11
+  W 16 12 15  9
+  W 16 12 13 11
+
+:top
+  W  0  0 16  1
+
+:bottom
+  W  0 12 16 11
+
+:left
+  W  0  0  1 12
+
+:right
+  W 16  0 15 12
+
+:block
+  W  0  0 16 12
