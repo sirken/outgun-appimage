@@ -85,3 +85,25 @@ and are tracked in git; the generated `AppDir/` and `.AppImage` output are not.
 ## License
 
 GPL-2.0-or-later. See [`COPYING`](COPYING).
+
+
+## TODO
+
+### Packaging
+
+- Add AppImage release to GH
+- Create Linux x86_64 release package for GH
+
+### Clean up default config
+  - Getting an error a while after each game launch: "Getting server list: Error writing to socket: operation timed out". There are zero servers listed in the menu. Either there are hard-coded default servers that are down, or it is querying servers even if our list is empty. We could potentially turn off the default "Get server list at startup" setting
+  - Default textures?
+  - Bug report policy, set to disabled by default
+
+### Misc
+
+- Update dead.pcx to splat graphic
+- Add config paths to readme
+
+### Server
+
+- gamemod.txt gets created only when running via outgun-ded. If running a server via the client GUI, and gamemod.txt doesn't exist, we get an error "can't open game mod file ~/.local/share/config/gamemod.txt". Instead of showing the warning, create the gamemod.txt just like outgun-ded
