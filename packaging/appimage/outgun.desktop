@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Outgun
+Comment=2D multiplayer capture-the-flag game
+Exec=outgun
+Icon=outgun
+Categories=Game;ActionGame;
+Terminal=false

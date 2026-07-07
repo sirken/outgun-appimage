@@ -1,0 +1,39 @@
+# Build outputs (see src/Makefile.common, TARGETBINDIR=".." puts these at repo root)
+/outgun
+/outgun-ded
+/relay
+/srvmonit
+/watchserver
+
+# Build intermediates
+src/obj/
+src/dep/
+src/bin/
+src/generated/
+src/makestatus/
+src/TAGS
+
+# AppImage packaging: tools are downloaded on demand, AppDir/output are generated
+# by packaging/appimage/build-appimage.sh -- see packaging/appimage/ for the
+# tracked source assets (outgun.desktop, outgun.png, build-appimage.sh).
+/appimage-tools/
+/appimage-build/
+
+# Runtime-generated writable data (see doc/directories.html and the whereuserdir
+# split in src/platform_unix.cpp -- normal runs write to $XDG_DATA_HOME/outgun
+# instead, but guard against stray local test runs, e.g. on Windows where
+# whereuserdir == wheregamedir)
+/log/
+/replay/
+/screens/
+/maps/generated/
+client_stats/*.html
+server_stats/*.html
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~
+
+# Claude Code local project state
+/.claude/
