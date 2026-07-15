@@ -1338,6 +1338,7 @@ void Server::chat(int pid, const string& message) throw () {
                 network.player_message(pid, msg_server, "/bot fill n      set bots_fill to n");
                 network.player_message(pid, msg_server, "/bot balance s   set balance_bot on or off");
                 network.player_message(pid, msg_server, "/bot ping p      show or set the bot ping");
+                network.player_message(pid, msg_server, "/bot ping p all  set the ping for all bots");
                 network.player_message(pid, msg_server, "/bot rename n s  set the name of bot with ID n to s");
                 network.plprintf      (pid, msg_server, "Currently there are %d bots.", network.get_bot_count());
                 network.plprintf      (pid, msg_server, "min_bots %d, bots_fill %d, extra_bots %d, balance_bot %s",
