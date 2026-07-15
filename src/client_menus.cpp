@@ -545,6 +545,7 @@ Menu_graphics::Menu_graphics() throw () :
     showNames.addOption(_("never"), N_Never);
     showNames.addOption(_("in same room"), N_SameRoom);
     showNames.addOption(_("always"), N_Always);
+    showNames.set(N_Always);
     minimapPlayers.addOption(_("fade out"  ), MP_Fade);
     minimapPlayers.addOption(_("hide early"), MP_EarlyCut);
     minimapPlayers.addOption(_("hide late" ), MP_LateCut);
