@@ -1421,12 +1421,22 @@ void Server::chat(int pid, const string& message) throw () {
                 if (!ist && ist.eof())
                     network.plprintf(pid, msg_server, "Current bot ping is %d.", settings.get_bot_ping());
                 else if (ist && ist.eof() && ping >= 0 && ping <= 2000) {
-                    bot_ping_changed = true;
                     settings.set_bot_ping(ping);
-                    network.plprintf(pid, msg_server, "Bot ping is now %d.", settings.get_bot_ping());
+                    network.plprintf(pid, msg_server, "Bot ping is now %d for newly created bots.", settings.get_bot_ping());
+                }
+                else if (ist && !ist.eof() && ping >= 0 && ping <= 2000) {
+                    string extra;
+                    ist >> extra;
+                    if (ist && ist.eof() && extra == "all") {
+                        settings.set_bot_ping(ping);
+                        bot_ping_changed = true;
+                        network.plprintf(pid, msg_server, "Bot ping is now %d, applied to all current bots too.", settings.get_bot_ping());
+                    }
+                    else
+                        network.plprintf(pid, msg_warning, "Syntax error. Valid ping range is 0 - 2000, optionally followed by 'all'.");
                 }
                 else
-                    network.plprintf(pid, msg_warning, "Syntax error. Valid ping range is 0 - 2000.");
+                    network.plprintf(pid, msg_warning, "Syntax error. Valid ping range is 0 - 2000, optionally followed by 'all'.");
             }
             else if (option == "rename") {
                 unsigned bot_id;
