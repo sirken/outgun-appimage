@@ -13,10 +13,6 @@
 
 # Questions
 
-- In previous verions of Outgun, bot ping could be set, and then bots were added with that ping.
-  The game could have bots of varying ping level. It appears that now all bots get the same
-  ping based on the last /bot ping X command. Is this the case?
-
 - Where is version number set? So we can increment version numbers as we make changes
 
 - How are server generated maps created?
@@ -31,6 +27,8 @@
 
 
 # Done
+
+- ~~Fix /bot ping to apply to bots created going forward, not all bots. Implement previously unfinished `/bot ping N all` command~~~
 
 - ~~Set default "Show player names" setting to Always~~
 
