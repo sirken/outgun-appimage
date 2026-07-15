@@ -272,19 +272,26 @@ bool RegisterMouseClicks::wasClicked(int button) throw () {
 #endif // DEDICATED_SERVER_ONLY
 
 void MasterSettings::load(LogSet& log) throw () {
-    static const char* defaultName = "koti.mbnet.fi";
-    static const char* defaultIP = "194.100.161.5";
+    // No default master/ranking/bug-report server: the original hard-coded addresses
+    // (koti.mbnet.fi, outgun.com.br, nix.dnsalias.net) are long dead, and MasterSettings::load()
+    // unconditionally does synchronous DNS resolution for whichever of name/IP is set below,
+    // independent of settings like "Get server list at startup" -- so a dead default here means
+    // several seconds of doomed DNS lookups delaying startup on every single launch. Leaving
+    // both name and IP blank makes the length checks below skip resolution entirely. Point
+    // whereuserdir/config/master.txt at a real master server to opt back in.
+    static const char* defaultName = "";
+    static const char* defaultIP = "";
     static const int defaultPort = 80;
     static const char* defaultQueryScript = "/outgun/servers/";
     static const char* defaultSubmitScript = "/outgun/servers/submit.php";
 
-    static const char* defaultRankName = "outgun.com.br";
-    static const char* defaultRankIP = "216.12.206.117";
+    static const char* defaultRankName = "";
+    static const char* defaultRankIP = "";
     static const int defaultRankPort = 80;
     static const char* defaultRankDataScript = "/rank.php";
     static const char* defaultRankTokenScript = "/update_token.php";
 
-    static const char* defaultBugName = "nix.dnsalias.net";
+    static const char* defaultBugName = "";
     static const char* defaultBugIP = "-";
     static const int defaultBugPort = 24900;
 

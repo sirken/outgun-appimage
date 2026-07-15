@@ -418,8 +418,8 @@ void Server::SettingManager::loadGamemod(bool reload) throw () {
         server.log("Game mod file read.");
         in.close();
     }
-    else
-        server.log.error(_("Can't open game mod file '$1'.", filename));
+    else // not an error: a missing gamemod.txt just means default settings are used, e.g. before it's been seeded, or in a minimal deployment that doesn't ship the config/ template
+        server.log(_("No game mod file found at '$1'; using default settings.", filename));
     if (!server_website_url.empty())
         info_message.push_back(string() + "Website: " + server_website_url);
     commit(reload);
