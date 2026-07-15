@@ -82,6 +82,33 @@ equivalent layout.
 Packaging source assets (`.desktop` file, icon) live in `packaging/appimage/`
 and are tracked in git; the generated `AppDir/` and `.AppImage` output are not.
 
+## File locations
+
+Read-only bundled assets (`graphics/`, `sound/`, `fonts/`, `languages/`,
+`mapgen/`, shipped `maps/`) are loaded relative to the running executable
+(`wheregamedir`) and never written to.
+
+Everything writable — settings, logs, replays, stats, downloaded/generated
+maps — lives under `$XDG_DATA_HOME/outgun` (`whereuserdir`), which defaults
+to:
+
+```
+~/.local/share/outgun/
+├── config/          # client.cfg, gamemod.txt, auth.txt, master.txt, ...
+├── log/
+├── replay/
+├── maps/generated/  # server-generated random maps
+├── cmaps/           # client-downloaded maps
+├── screens/         # screenshots
+├── client_stats/
+└── server_stats/
+```
+
+`config/auth.txt` and `config/gamemod.txt` are seeded from the shipped
+templates on first run; everything else is created fresh as needed. See
+`src/platform_unix.cpp` (`platInitAfterAllegro`) and `src/main.cpp`
+(`seedUserConfigFileIfMissing`) for the actual logic.
+
 ## License
 
 GPL-2.0-or-later. See [`COPYING`](COPYING).
@@ -89,21 +116,45 @@ GPL-2.0-or-later. See [`COPYING`](COPYING).
 
 ## TODO
 
+- limited to 99 maps? (unconfirmed — no hardcoded 99-map limit found in the
+  server rotation or client map-list code; needs a concrete repro)
+
 ### Packaging
 
 - Add AppImage release to GH
-- Create Linux x86_64 release package for GH
+- Create Linux x86_64 release package for GH (make sure it bundles `config/`
+  alongside the binaries — see the `gamemod.txt`/`auth.txt` note below)
 
-### Clean up default config
-  - Getting an error a while after each game launch: "Getting server list: Error writing to socket: operation timed out". There are zero servers listed in the menu. Either there are hard-coded default servers that are down, or it is querying servers even if our list is empty. We could potentially turn off the default "Get server list at startup" setting
-  - Default textures?
-  - Bug report policy, set to disabled by default
+### Done
 
-### Misc
+- ~~Update dead.pcx to splat graphic~~: `graphics/Grass/dead.pcx` and
+  `dead_alpha.pcx` replaced.
 
-- Update dead.pcx to splat graphic
-- Add config paths to readme
-
-### Server
-
-- gamemod.txt gets created only when running via outgun-ded. If running a server via the client GUI, and gamemod.txt doesn't exist, we get an error "can't open game mod file ~/.local/share/config/gamemod.txt". Instead of showing the warning, create the gamemod.txt just like outgun-ded
+- ~~Clean up default config~~: `autoGetServerList` ("Get server list at
+  startup") now defaults to off (`src/client_menus.cpp`), but the deeper fix
+  was in `MasterSettings::load()` (`src/commont.cpp`): it unconditionally did
+  *synchronous DNS resolution* for the master/ranking/bug-report server
+  names on every launch, completely independent of `autoGetServerList` or
+  any other setting — that's what was actually causing the delay/timeout,
+  not the list-fetch itself. The hard-coded defaults (`koti.mbnet.fi`,
+  `outgun.com.br`, `nix.dnsalias.net` — all long dead) are now blank, so
+  the length checks skip resolution entirely and startup is instant; point
+  `whereuserdir/config/master.txt` at a real master server to opt back in.
+  Also: bug report policy now defaults to disabled on the first-run splash;
+  default "Rooms on screen in each direction in game" is 1; "Scrolling"
+  defaults off; default theme is Grass, default background theme is Metal;
+  "Show favorite servers" now defaults on (all `src/client_menus.cpp`).
+- ~~gamemod.txt gets created only when running via outgun-ded~~ /
+  ~~client GUI-launched server shows "Can't open game mod file"~~: the real
+  bug was that `seedUserConfigFileIfMissing()` (`src/main.cpp`) seeds
+  `whereuserdir/config/gamemod.txt` from the shipped
+  `wheregamedir/config/gamemod.txt` template — which silently does nothing
+  if that template isn't present (e.g. a minimal deployment that only ships
+  the binary, without the `config/` directory). A missing gamemod.txt was
+  already handled gracefully (server runs fine on built-in defaults), but
+  `Server::SettingManager::loadGamemod()` (`src/server_settings.cpp`) logged
+  it as an *error*, which surfaced in the scary "Errors:" summary shown at
+  exit. Downgraded to a plain informational log line. Verified by running
+  `outgun-ded`/`outgun` from a directory containing only the binary (+
+  `maps/`, required regardless) — no more error, either at startup or exit.
+- ~~Add config paths to readme~~: see "File locations" above.
