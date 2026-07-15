@@ -1,7 +1,9 @@
 
 # Bugs
 
-- no sound on Mint 24?
+- no sound on Mint 22
+
+- Bot ping range in prevoius versions was 1-500. Now it is 1-2000, so defaults in gamemod files are very difficult. Update them to 700
 
 
 # Features
@@ -11,7 +13,7 @@
 
 # Questions
 
-- In previous verions of Outgun, bot ping coudld be set, and then bots added with that ping.
+- In previous verions of Outgun, bot ping could be set, and then bots were added with that ping.
   The game could have bots of varying ping level. It appears that now all bots get the same
   ping based on the last /bot ping X command. Is this the case?
 
