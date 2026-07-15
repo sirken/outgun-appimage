@@ -2696,7 +2696,7 @@ void GuiClient::loop(volatile bool* quitFlag, bool firstTimeSplash) throw () {
     menusel = menu_none;
     openMenus.clear();
     if (firstTimeSplash) {
-        menu.options.bugReports.policy.set(ABR_minimal);
+        menu.options.bugReports.policy.set(ABR_disabled);
         showMenu(menu.options.bugReports);
     }
     else

@@ -133,7 +133,7 @@ Menu_serverList::Menu_serverList() throw () :
     refresh         (_("Refresh servers")),
     refreshStatus   (_("Refresh status")),
 
-    favorites       (_("Show favorite servers")),
+    favorites       (_("Show favorite servers"), true),
     addServer       (),
     manualEntry     (_("Manually enter IP"), true, false),
 
@@ -258,7 +258,7 @@ Menu_game::Menu_game() throw () :
     underlineMasterAuth (_("Underline master-authenticated players"), true),
     underlineServerAuth (_("Underline server-authenticated players"), false),
 
-    autoGetServerList   (_("Get server list at startup"), true),
+    autoGetServerList   (_("Get server list at startup"), false),
 
     menu                (_("Game options"), true)
 {
@@ -497,6 +497,9 @@ void Menu_theme::initialize(MenuHookable<Menu>::HookFunctionT* opener, SettingCo
 
 void Menu_theme::init(const Graphics& gfx) throw () { // call just once, before calling update
     reloadChoices(gfx);
+    // Defaults for a fresh install (a saved client.cfg selection, if any, is applied later and overrides these).
+    theme.set("Grass");
+    background.set("Metal");
 }
 
 void Menu_theme::update(const Graphics& gfx) throw () { // tries to keep the selected choices
@@ -514,9 +517,9 @@ void Menu_theme::update(const Graphics& gfx) throw () { // tries to keep the sel
 
 Menu_graphics::Menu_graphics() throw () :
     showNames            (_("Show player names")),
-    visibleRoomsPlay     (_("Rooms on screen in each direction in game"), false, 1, 20, 2),
+    visibleRoomsPlay     (_("Rooms on screen in each direction in game"), false, 1, 20, 1),
     visibleRoomsReplay   (_("Rooms on screen in each direction in replay"), false, 1, 20, 20),
-    scroll               (_("Scrolling"), true),
+    scroll               (_("Scrolling"), false),
 
     antialiasing         (_("Antialiasing"), true),
     minTransp            (_("Less transparency effects"), false),
