@@ -8,8 +8,6 @@
 
 - Create map editor
 
-- Set default "Show player names" setting to Always
-
 
 # Questions
 
@@ -31,6 +29,8 @@
 
 
 # Done
+
+- ~~Set default "Show player names" setting to Always~~
 
 - ~~Update dead.pcx to splat graphic~~: `graphics/Grass/dead.pcx` and
   `dead_alpha.pcx` replaced.
