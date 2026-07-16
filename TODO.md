@@ -3,7 +3,7 @@
 
 - no sound on Mint 22
 
-- Bot ping range in prevoius versions was 1-500. Now it is 1-2000, so defaults in gamemod files are very difficult. Update them to 700
+- Bot ping range in prevoius versions was 1-500. Now it is 1-2000, so defaults in gamemod files are very difficult. Update defaults to 700
 
 
 # Features
