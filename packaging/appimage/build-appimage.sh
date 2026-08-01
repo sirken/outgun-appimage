@@ -98,11 +98,24 @@ NO_STRIP=1 "$LINUXDEPLOY" \
 # ALLEGRO_MODULES in a custom AppRun (see below). JACK is skipped deliberately: it
 # pulls in libjack/libdb and is a niche pro-audio setup; ALSA covers virtually
 # everything else.
+#
+# Deliberately NOT bundling libasound.so.2 (ALSA's own runtime), even though
+# alleg-alsadigi.so links against it: unlike the plugin .so files above, libasound
+# itself dynamically discovers and loads a distro's actual PCM routing backend (e.g.
+# PipeWire's ALSA compatibility plugin) from a path baked into ITS build -- confirmed
+# via `strings` that an Arch-built libasound.so.2 hardcodes /usr/lib/alsa-lib, while
+# Debian/Ubuntu-family systems (Mint, etc.) use /usr/lib/x86_64-linux-gnu/alsa-lib/
+# instead. Bundling our build's libasound.so.2 silently broke sound on other distros
+# (worked on Manjaro, the build host's own family; silent no-sound on Mint 22) because
+# the bundled shim could never find the target system's real audio routing plugin.
+# Leaving libasound.so.2 unbundled lets the dynamic linker fall through to the host's
+# own (correctly distro-configured) copy, which every mainstream desktop distro ships
+# as a baseline dependency -- same reasoning as relying on the host's libc/libX11
+# rather than bundling those. Do not re-add this "for safety"; it broke things.
 log "Bundling Allegro sound driver plugins..."
 mkdir -p "$APPDIR/usr/lib/allegro/$ALLEG_MODULE_VERSION"
 cp "$ALLEG_MODULE_DIR/alleg-alsadigi.so" "$ALLEG_MODULE_DIR/alleg-alsamidi.so" "$ALLEG_MODULE_DIR/modules.lst" \
     "$APPDIR/usr/lib/allegro/$ALLEG_MODULE_VERSION/"
-cp /usr/lib/libasound.so.2 "$APPDIR/usr/lib/"
 
 log "Writing custom AppRun..."
 rm -f "$APPDIR/AppRun"

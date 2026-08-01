@@ -1,8 +1,6 @@
 
 # Bugs
 
-- no sound on Mint 22
-
 - Bot ping range in prevoius versions was 1-500. Now it is 1-2000, so defaults in gamemod files are very difficult. Update defaults to 700
 
 
@@ -27,6 +25,28 @@
 
 
 # Done
+
+- ~~No sound on Mint 22, but works in Manjaro~~: the AppImage was bundling
+  `libasound.so.2` (ALSA's own runtime) built on the Arch/Manjaro host, but
+  `libasound.so.2` itself dynamically loads a distro's real audio-routing
+  plugin (e.g. PipeWire's ALSA shim) from a path baked into that specific
+  build — confirmed via `strings` that the bundled copy hardcodes
+  `/usr/lib/alsa-lib`, while Debian/Ubuntu-family systems (Mint included)
+  use `/usr/lib/x86_64-linux-gnu/alsa-lib/` instead, so the bundled shim
+  could never find Mint's real backend and device open failed silently.
+  Removed the `cp .../libasound.so.2` line from
+  `packaging/appimage/build-appimage.sh` — the loader now falls through to
+  the host's own (correctly distro-configured) copy, which every
+  mainstream desktop distro ships as a baseline dependency anyway. The two
+  small Allegro ALSA driver plugins stay bundled; they don't have this
+  problem. Also added `allegro_error` to the sound-init failure log
+  (`src/sounds.cpp`) so any future audio issue is diagnosable from a log
+  file instead of requiring this kind of manual root-causing. Verified the
+  mechanism directly (confirmed via `/proc/<pid>/maps` that the rebuilt
+  AppImage now loads `/usr/lib/libasound.so.2` from the host, not the
+  bundle) — **not yet verified on actual Mint 22 hardware**, since none was
+  available to test on; the evidence is strong but this needs a real
+  confirmation.
 
 - ~~Fix /bot ping to apply to bots created going forward, not all bots. Implement previously unfinished `/bot ping N all` command~~~
 
