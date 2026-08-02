@@ -1,9 +1,10 @@
 # Outgun
 
 Outgun is a 2D, 32-player multiplayer capture-the-flag game, originally released
-by Niko Ritari, Jani Rivinoja, and others. This is the 1.0.3 development source
-snapshot, updated to build on current Linux distributions and packaged as a
-self-contained AppImage.
+by Niko Ritari, Jani Rivinoja, and others. This fork is based on the 1.0.3
+development source snapshot, updated to build on current Linux distributions
+and packaged as a self-contained AppImage. The packaged/reported game version
+has moved on from that snapshot and is currently `1.0.4` (`src/version.cpp`).
 
 See [`README.txt`](README.txt) for the original project history and credits, and
 [`doc/`](doc/) for the full original game/server/map documentation. This file
@@ -72,7 +73,16 @@ runtime-loaded ALSA sound driver plugins (which aren't relocatable by default �
 see the comments in the script), and packages everything with `linuxdeploy` +
 `appimagetool`. Both tools are downloaded automatically on first run into
 `appimage-tools/` (not tracked in git). The result lands at
-`appimage-build/Outgun-<version>-x86_64.AppImage`.
+`appimage-build/Outgun-<version>-<build date>-x86_64.AppImage`.
+
+The script deliberately does *not* bundle `libasound.so.2` (ALSA's own
+runtime) even though the ALSA driver plugin links against it — unlike a
+plain leaf library, `libasound.so.2` itself dynamically discovers a distro's
+real audio backend (e.g. PipeWire's ALSA compatibility plugin) from a path
+baked into that specific build, so bundling one distro's copy breaks sound
+on others. It's left to resolve from the target system's own (correctly
+configured) copy instead. See the comments in the script for the full
+reasoning.
 
 The script requires the same dependencies as a normal build (Allegro 4,
 HawkNL) plus `curl`. It's written for Arch's Allegro 4 package layout
@@ -81,6 +91,25 @@ equivalent layout.
 
 Packaging source assets (`.desktop` file, icon) live in `packaging/appimage/`
 and are tracked in git; the generated `AppDir/` and `.AppImage` output are not.
+
+## Building the Linux release package
+
+```sh
+./packaging/linux-release/build-release.sh
+```
+
+Builds `outgun`/`outgun-ded` and packages them with `config/` (needed for
+`seedUserConfigFileIfMissing()` to seed `auth.txt`/`gamemod.txt` on first
+run) and the other read-only asset directories, plus `COPYING`, `README.txt`,
+and `doc/`, into a dated tarball:
+`linux-release-build/Outgun-<version>-<build date>-linux-x86_64.tar.gz`.
+
+Unlike the AppImage, this is **not self-contained** — it relies on Allegro 4
+and HawkNL being installed on whatever system it's run on. Use it for a
+lighter package aimed at users who'll install those themselves; use the
+AppImage for a fully portable, dependency-free option. A generated
+`INSTALL.txt` inside the tarball documents the runtime dependency and basic
+usage.
 
 ## File locations
 
