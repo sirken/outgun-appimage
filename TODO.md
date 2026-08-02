@@ -1,8 +1,6 @@
 
 # Bugs
 
-- Bot ping range in prevoius versions was 1-500. Now it is 1-2000, so defaults in gamemod files are very difficult. Update defaults to 700
-
 
 # Features
 
@@ -25,6 +23,14 @@
 
 
 # Done
+
+- ~~Bot ping range in previous outgun versions was 1-500, now 1-2000, so
+  defaults in gamemod files are very difficult~~: default `bot_ping`
+  changed from 300 to 700 (`src/server_settings.cpp`), and the shipped
+  `config/gamemod.txt` template — which sets `bot_ping 100` as an active
+  setting, overriding the code default for anyone it gets seeded to —
+  updated to `bot_ping 700` with its range/default comment corrected from
+  the stale "0 to 500, default: 100" to "0 to 2000, default: 700".
 
 - ~~No sound on Mint 22, but works in Manjaro~~: the AppImage was bundling
   `libasound.so.2` (ALSA's own runtime) built on the Arch/Manjaro host, but

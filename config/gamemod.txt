@@ -64,13 +64,13 @@ ranking_minplayers 4
 ; min_bots: 0 to 32, default: 0
 ; bots_fill: 0 to 32, default: 0
 ; balance_bot: 1 to enable, 0 to disable, default: 0
-; bot_ping: 0 to 500, default: 100
+; bot_ping: 0 to 2000, default: 700
 ; bot_name_lang: classic or fi, default: classic
 
 min_bots 0
 bots_fill 0
 balance_bot 0
-bot_ping 100
+bot_ping 700
 bot_name_lang classic
 
 ; -----------------

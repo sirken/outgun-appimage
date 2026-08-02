@@ -474,7 +474,7 @@ void Server::SettingManager::reset() throw () {
 
     min_bots = 0;
     bots_fill = 0;
-    bot_ping = 300;
+    bot_ping = 700;
     balance_bot = false;
 
     server_password.clear();
