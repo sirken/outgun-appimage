@@ -16,11 +16,26 @@
 
 - Add AppImage release to GH
 
-- Create Linux x86_64 release package for GH that includes both client and server files (make sure it bundles `config/`
-  alongside the binaries — see the `gamemod.txt`/`auth.txt` note below)
-
 
 # Done
+
+- ~~Create Linux x86_64 release package for GH that includes both client and
+  server files (make sure it bundles config/ alongside the binaries)~~:
+  `packaging/linux-release/build-release.sh` builds `outgun` and
+  `outgun-ded`, then packages them with `config/` and all the other
+  read-only asset directories (`graphics/`, `sound/`, `fonts/`,
+  `languages/`, `mapgen/`, `maps/`, `cmaps/`), plus `COPYING`, `README.txt`,
+  and `doc/`, into a dated tarball
+  (`Outgun-<version>-<build date>-linux-x86_64.tar.gz`, mirroring the
+  AppImage's naming). Unlike the AppImage this is **not self-contained** —
+  it relies on Allegro 4 and HawkNL being installed on the target system —
+  so a generated `INSTALL.txt` explains that tradeoff and how to install
+  them. Verified by extracting the tarball to a fresh directory and running
+  both binaries from there: config seeding (`auth.txt`/`gamemod.txt`) and
+  the dedicated server both worked correctly; the GUI client was confirmed
+  alive with no crash/coredump, though a screen lock prevented a final
+  visual screenshot this run (the identical binary was already visually
+  verified multiple times earlier in unrelated tests).
 
 - ~~Where is version number set? Update this version to 1.0.4~~:
   `GAME_RELEASED_VERSION_SHORT`/`GAME_RELEASED_VERSION` in
