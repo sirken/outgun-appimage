@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-VERSION="1.0.3"
+VERSION="1.0.4"
 ARCH="x86_64"
 BUILD_DATE="$(date +%Y%m%d)"
 

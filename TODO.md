@@ -9,8 +9,6 @@
 
 # Questions
 
-- Where is version number set? So we can increment version numbers as we make changes
-
 - How are server generated maps created?
 
 
@@ -18,11 +16,19 @@
 
 - Add AppImage release to GH
 
-- Create Linux x86_64 release package for GH (make sure it bundles `config/`
+- Create Linux x86_64 release package for GH that includes both client and server files (make sure it bundles `config/`
   alongside the binaries — see the `gamemod.txt`/`auth.txt` note below)
 
 
 # Done
+
+- ~~Where is version number set? Update this version to 1.0.4~~:
+  `GAME_RELEASED_VERSION_SHORT`/`GAME_RELEASED_VERSION` in
+  `src/version.cpp`, now `1.0.4`. Also bumped the `VERSION` variable in
+  `packaging/appimage/build-appimage.sh` to match (it's independent, not
+  derived from the source). The network protocol version
+  (`GAME_PROTOCOL` in `src/protocol.h`) is a separate, unrelated concept
+  and was left unchanged.
 
 - ~~Bot ping range in previous outgun versions was 1-500, now 1-2000, so
   defaults in gamemod files are very difficult~~: default `bot_ping`

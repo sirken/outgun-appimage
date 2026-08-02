@@ -35,8 +35,8 @@ const string GAME_BRANCH = "base";
  * If at some point this requirement is relaxed, all uses of getVersionString must be checked for their hard limit.
  * It should fully indentify the release (within the GAME_BRANCH). It must not contain spaces.
  */
-const string GAME_RELEASED_VERSION_SHORT = "1.0.3";
-const string GAME_RELEASED_VERSION = "1.0.3";
+const string GAME_RELEASED_VERSION_SHORT = "1.0.4";
+const string GAME_RELEASED_VERSION = "1.0.4";
 const string GAME_COPYRIGHT_YEAR = "2010";
 
 string getVersionString(bool allowSpaces, string::size_type softLimit, string::size_type hardLimit, bool tryHardForSoft) throw () {
