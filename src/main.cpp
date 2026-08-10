@@ -207,7 +207,6 @@ int main(int argc, const char* argv[]) {
     std::set_unexpected(terminateHandler);
     std::set_new_handler(outOfMemory);
 
-    Thread::logCallerIdentity("main");
     srand((unsigned)time(0));
 
     platInit();
@@ -251,6 +250,12 @@ static int wrappedMain(int argc, const char* argv[]) throw () {
         messageBox("Error", "The directory 'log' was not found and could not be created.");
         return 1;
     }
+    // Only safe to log thread activity (see debugconfig.h's LOG_THREAD_ACTIONS) once whereuserdir
+    // and its log/ directory both exist -- ThreadLog writes there, and moving this any earlier
+    // (e.g. to the top of main(), before platInit()/platInitAfterAllegro() run) previously caused
+    // the write path to be built from an empty whereuserdir and an unset directory_separator,
+    // silently truncating the target filename.
+    Thread::logCallerIdentity("main");
 
     FileLog logFile(whereuserdir + "log" + directory_separator + "log.txt", true);
     MemoryLog memoryErrorLog;

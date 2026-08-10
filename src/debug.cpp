@@ -23,12 +23,17 @@
 
 #include <cstdio>
 
+#include "commont.h"
 #include "debug.h"
 #include "debugconfig.h"
 
 void ThreadLog::beginEntry() throw () {
     if (!file) {
-        file = fopen("threadlog.bin", "wb");
+        // whereuserdir, not a bare relative path: this used to be inert (LOG_THREAD_ACTIONS was
+        // always false), but DEVBUILD can now enable it, including for a packaged AppImage/tarball
+        // whose CWD when launched isn't reliably writable -- and the nAssert below means a failed
+        // fopen crashes rather than degrading, so this has to land somewhere known-writable.
+        file = fopen((whereuserdir + "log" + directory_separator + "threadlog.bin").c_str(), "wb");
         nAssert(file); // no fancy handling in developer-only code
     }
 }
