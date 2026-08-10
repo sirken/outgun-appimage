@@ -62,6 +62,21 @@ expect (`graphics/`, `sound/`, etc.). Run either directly from there:
 Other useful `make` targets: `tools` (srvmonit, relay, watchserver), `all`,
 `testsuite`, `clean`. See `src/Makefile.common` for the full list.
 
+Add `DEVBUILD=1` to enable extra runtime diagnostics (thread activity,
+message traffic, connection warnings — see `src/debugconfig.h`) that are
+compiled out by default:
+
+```sh
+make -C src -f Makefile.common LINUX=1 DEVBUILD=1 outgun outgun-ded
+```
+
+Independent of `DEVBUILD`, every build made from a git checkout embeds the
+current short commit hash into the reported version string (e.g. shown in
+the client, `-info` output, bug reports) — a trailing `M` means the working
+tree had uncommitted changes at build time. Building from a `.git`-less
+source export (e.g. a re-packaged tarball) falls back to the plain version
+number, exactly as before this existed.
+
 ## Building the AppImage
 
 ```sh
@@ -89,6 +104,12 @@ HawkNL) plus `curl`. It's written for Arch's Allegro 4 package layout
 (`/usr/lib/allegro/<version>/`) but should work on any distro with an
 equivalent layout.
 
+Pass `--dev` for a dev build: stamps the current short git commit hash into
+the output filename (`Outgun-<version>-<hash>-x86_64.AppImage`, with a
+trailing `-dirty` if the working tree has uncommitted changes), and builds
+with `DEVBUILD=1` for extra runtime diagnostics. A plain invocation (no
+flag) is unaffected either way.
+
 Packaging source assets (`.desktop` file, icon) live in `packaging/appimage/`
 and are tracked in git; the generated `AppDir/` and `.AppImage` output are not.
 
@@ -110,6 +131,12 @@ lighter package aimed at users who'll install those themselves; use the
 AppImage for a fully portable, dependency-free option. A generated
 `INSTALL.txt` inside the tarball documents the runtime dependency and basic
 usage.
+
+Pass `--dev` for a dev build, same as the AppImage script: stamps the
+current short git commit hash into the output filename and `INSTALL.txt`
+(`Outgun-<version>-<hash>-linux-x86_64.tar.gz`, `-dirty` suffix if the
+working tree has uncommitted changes), and builds with `DEVBUILD=1` for
+extra runtime diagnostics.
 
 ## File locations
 
