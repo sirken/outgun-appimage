@@ -13,8 +13,13 @@
 #   - Allegro 4 headers/libs        (allegro4, from the official 'extra' repo)
 #   - HawkNL headers/libs           (hawknl-git, from the AUR)
 #
-# Usage: ./packaging/linux-release/build-release.sh
+# Usage: ./packaging/linux-release/build-release.sh [--dev]
 # Output: linux-release-build/Outgun-<version>-linux-x86_64.tar.gz
+#         (or Outgun-<version>-<short-hash>[-dirty]-linux-x86_64.tar.gz with --dev)
+#
+# --dev stamps the current short git commit hash (plus a -dirty suffix if the working
+# tree has uncommitted changes) into the output filename, and builds with DEVBUILD=1
+# (see src/debugconfig.h) for extra runtime diagnostics.
 
 set -euo pipefail
 
@@ -24,8 +29,23 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VERSION="1.0.4"
 ARCH="x86_64"
 
+DEV_BUILD=0
+if [ "${1:-}" = "--dev" ]; then
+    DEV_BUILD=1
+    shift
+fi
+
+BUILD_SUFFIX=""
+if [ "$DEV_BUILD" = "1" ]; then
+    GIT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    if [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
+        GIT_HASH="${GIT_HASH}-dirty"
+    fi
+    BUILD_SUFFIX="-${GIT_HASH}"
+fi
+
 BUILD_DIR="$REPO_ROOT/linux-release-build"
-PKG_NAME="Outgun-${VERSION}-linux-${ARCH}"
+PKG_NAME="Outgun-${VERSION}${BUILD_SUFFIX}-linux-${ARCH}"
 STAGE_DIR="$BUILD_DIR/$PKG_NAME"
 TARBALL="$BUILD_DIR/${PKG_NAME}.tar.gz"
 
@@ -42,8 +62,10 @@ command -v allegro-config >/dev/null 2>&1 || die "allegro-config not found. Inst
 # -- 2. Build the game --
 
 log "Building Outgun (client + dedicated server)..."
+DEVBUILD_MAKEARG=""
+[ "$DEV_BUILD" = "1" ] && DEVBUILD_MAKEARG="DEVBUILD=1"
 make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 clean
-make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 outgun outgun-ded
+make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 $DEVBUILD_MAKEARG outgun outgun-ded
 
 # -- 3. Assemble the release directory --
 
@@ -67,7 +89,7 @@ cp "$REPO_ROOT/COPYING" "$REPO_ROOT/README.txt" "$STAGE_DIR/"
 cp -r "$REPO_ROOT/doc" "$STAGE_DIR/"
 
 cat > "$STAGE_DIR/INSTALL.txt" <<EOF
-Outgun ${VERSION} -- Linux ${ARCH} release package
+Outgun ${VERSION}${BUILD_SUFFIX} -- Linux ${ARCH} release package
 ====================================================
 
 This package is NOT self-contained: it needs Allegro 4 and HawkNL installed

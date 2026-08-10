@@ -9,8 +9,13 @@
 #   - curl                          (curl)
 # linuxdeploy and appimagetool are downloaded automatically on first run.
 #
-# Usage: ./packaging/appimage/build-appimage.sh
+# Usage: ./packaging/appimage/build-appimage.sh [--dev]
 # Output: appimage-build/Outgun-<version>-x86_64.AppImage
+#         (or appimage-build/Outgun-<version>-<short-hash>[-dirty]-x86_64.AppImage with --dev)
+#
+# --dev stamps the current short git commit hash (plus a -dirty suffix if the working
+# tree has uncommitted changes) into the output filename, and builds with DEVBUILD=1
+# (see src/debugconfig.h) for extra runtime diagnostics.
 
 set -euo pipefail
 
@@ -20,10 +25,25 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VERSION="1.0.4"
 ARCH="x86_64"
 
+DEV_BUILD=0
+if [ "${1:-}" = "--dev" ]; then
+    DEV_BUILD=1
+    shift
+fi
+
+BUILD_SUFFIX=""
+if [ "$DEV_BUILD" = "1" ]; then
+    GIT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    if [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then
+        GIT_HASH="${GIT_HASH}-dirty"
+    fi
+    BUILD_SUFFIX="-${GIT_HASH}"
+fi
+
 TOOLS_DIR="$REPO_ROOT/appimage-tools"
 BUILD_DIR="$REPO_ROOT/appimage-build"
 APPDIR="$BUILD_DIR/AppDir"
-APPIMAGE_OUT="$BUILD_DIR/Outgun-${VERSION}-${ARCH}.AppImage"
+APPIMAGE_OUT="$BUILD_DIR/Outgun-${VERSION}${BUILD_SUFFIX}-${ARCH}.AppImage"
 
 LINUXDEPLOY="$TOOLS_DIR/linuxdeploy-x86_64.AppImage"
 APPIMAGETOOL="$TOOLS_DIR/appimagetool-x86_64.AppImage"
@@ -66,8 +86,10 @@ fi
 # -- 3. Build the game --
 
 log "Building Outgun (client + dedicated server)..."
+DEVBUILD_MAKEARG=""
+[ "$DEV_BUILD" = "1" ] && DEVBUILD_MAKEARG="DEVBUILD=1"
 make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 clean
-make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 outgun outgun-ded
+make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 $DEVBUILD_MAKEARG outgun outgun-ded
 
 # -- 4. Assemble the AppDir --
 
