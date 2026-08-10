@@ -25,7 +25,12 @@
 #define DEBUGCONFIG_H_INC
 
 // Make Thread log its use in ./threadlog.bin.
+// DEVBUILD (see src/Makefile.common) flips this on by default.
+#ifdef DEVBUILD
+static const bool LOG_THREAD_ACTIONS = true;
+#else
 static const bool LOG_THREAD_ACTIONS = false;
+#endif
 
 // Enable extra runtime checks on synchronization primives (also required for their LOG_*_ACTIONS to work).
 #ifdef EXTRA_DEBUG
@@ -43,13 +48,24 @@ static const bool LOG_CONDVAR_ACTIONS = false;
 #endif
 
 // Flush ./threadlog.bin on every write to ensure everything is written in the event of a crash.
+// DEVBUILD flips this on by default, alongside LOG_THREAD_ACTIONS -- no point logging thread
+// actions for debugging if the log can be lost in exactly the crash scenario you'd want it for.
+#ifdef DEVBUILD
+static const bool FLUSH_THREAD_LOG = true;
+#else
 static const bool FLUSH_THREAD_LOG = false;
+#endif
 
 // Report on missing or wrongly ordered packets (both client and server).
-static const bool WATCH_CONNECTION = false;
-
 // Briefly log message types when receiving (both client and server; LEETNET_DATA_LOG does the same much better but the logs aren't as easy to read).
+// DEVBUILD flips both of these on by default.
+#ifdef DEVBUILD
+static const bool WATCH_CONNECTION = true;
+static const bool LOG_MESSAGE_TRAFFIC = true;
+#else
+static const bool WATCH_CONNECTION = false;
 static const bool LOG_MESSAGE_TRAFFIC = false;
+#endif
 
 // What to report over the net in the event of an assertion.
 enum AutoBugReporting { ABR_disabled, ABR_minimal, ABR_withDump };

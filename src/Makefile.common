@@ -50,10 +50,13 @@ CFLAGS ?= -W -Wall -O3 -ffast-math -fno-enforce-eh-specs
 # -std=gnu++98 keeps the codebase's pervasive dynamic exception specifications and
 # std::auto_ptr usage legal; modern GCC's default (C++20) removes both outright.
 CXXFLAGS ?= $(CFLAGS) -std=gnu++98
+# DEVBUILD=1 enables extra runtime diagnostics gated in src/debugconfig.h (off by default).
+ifdef DEVBUILD
+ CXXFLAGS += -DDEVBUILD
+endif
 
 CC ?= gcc
 CXX ?= g++
-SVNVERSION ?= svnversion
 
 DEPDIR ?= dep
 OBJDIR ?= obj
@@ -129,8 +132,17 @@ default:
 .SUFFIXES:
 .DELETE_ON_ERROR:
 
-ifeq ($(wildcard .svn),.svn)
- SVN_REVISION := $(shell $(SVNVERSION))
+# SVN_REVISION is a legacy name from this project's Subversion days; repurposed for git.
+# git puts .git only at the repo root (unlike svn's .svn in every subdirectory, which the old
+# check here relied on), so rely on `git rev-parse`'s own upward repo-root discovery instead of
+# a file-existence check -- this also degrades cleanly (empty SVN_REVISION, exactly like today)
+# when building outside a git checkout, e.g. from an extracted release tarball.
+GIT_REVISION := $(shell git rev-parse --short HEAD 2>/dev/null)
+ifneq ($(GIT_REVISION),)
+ ifneq ($(shell git status --porcelain 2>/dev/null),)
+  GIT_REVISION := $(GIT_REVISION)M
+ endif
+ SVN_REVISION := $(GIT_REVISION)
 endif
 
 # -- Compiler flags: --
