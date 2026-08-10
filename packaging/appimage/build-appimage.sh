@@ -10,7 +10,7 @@
 # linuxdeploy and appimagetool are downloaded automatically on first run.
 #
 # Usage: ./packaging/appimage/build-appimage.sh
-# Output: appimage-build/Outgun-<version>-<build date>-x86_64.AppImage
+# Output: appimage-build/Outgun-<version>-x86_64.AppImage
 
 set -euo pipefail
 
@@ -19,12 +19,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 VERSION="1.0.4"
 ARCH="x86_64"
-BUILD_DATE="$(date +%Y%m%d)"
 
 TOOLS_DIR="$REPO_ROOT/appimage-tools"
 BUILD_DIR="$REPO_ROOT/appimage-build"
 APPDIR="$BUILD_DIR/AppDir"
-APPIMAGE_OUT="$BUILD_DIR/Outgun-${VERSION}-${BUILD_DATE}-${ARCH}.AppImage"
+APPIMAGE_OUT="$BUILD_DIR/Outgun-${VERSION}-${ARCH}.AppImage"
 
 LINUXDEPLOY="$TOOLS_DIR/linuxdeploy-x86_64.AppImage"
 APPIMAGETOOL="$TOOLS_DIR/appimagetool-x86_64.AppImage"

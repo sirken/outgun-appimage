@@ -14,7 +14,7 @@
 #   - HawkNL headers/libs           (hawknl-git, from the AUR)
 #
 # Usage: ./packaging/linux-release/build-release.sh
-# Output: linux-release-build/Outgun-<version>-<build date>-linux-x86_64.tar.gz
+# Output: linux-release-build/Outgun-<version>-linux-x86_64.tar.gz
 
 set -euo pipefail
 
@@ -23,10 +23,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 VERSION="1.0.4"
 ARCH="x86_64"
-BUILD_DATE="$(date +%Y%m%d)"
 
 BUILD_DIR="$REPO_ROOT/linux-release-build"
-PKG_NAME="Outgun-${VERSION}-${BUILD_DATE}-linux-${ARCH}"
+PKG_NAME="Outgun-${VERSION}-linux-${ARCH}"
 STAGE_DIR="$BUILD_DIR/$PKG_NAME"
 TARBALL="$BUILD_DIR/${PKG_NAME}.tar.gz"
 

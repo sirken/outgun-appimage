@@ -19,6 +19,12 @@
 
 # Done
 
+- ~~Remove date from release filenames~~: dropped the `<build date>`
+  component from both `packaging/appimage/build-appimage.sh` and
+  `packaging/linux-release/build-release.sh`. Outputs are now
+  `Outgun-<version>-x86_64.AppImage` and
+  `Outgun-<version>-linux-x86_64.tar.gz`.
+
 - ~~Create Linux x86_64 release package for GH that includes both client and
   server files (make sure it bundles config/ alongside the binaries)~~:
   `packaging/linux-release/build-release.sh` builds `outgun` and

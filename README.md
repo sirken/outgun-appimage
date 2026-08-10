@@ -73,7 +73,7 @@ runtime-loaded ALSA sound driver plugins (which aren't relocatable by default �
 see the comments in the script), and packages everything with `linuxdeploy` +
 `appimagetool`. Both tools are downloaded automatically on first run into
 `appimage-tools/` (not tracked in git). The result lands at
-`appimage-build/Outgun-<version>-<build date>-x86_64.AppImage`.
+`appimage-build/Outgun-<version>-x86_64.AppImage`.
 
 The script deliberately does *not* bundle `libasound.so.2` (ALSA's own
 runtime) even though the ALSA driver plugin links against it — unlike a
@@ -101,8 +101,8 @@ and are tracked in git; the generated `AppDir/` and `.AppImage` output are not.
 Builds `outgun`/`outgun-ded` and packages them with `config/` (needed for
 `seedUserConfigFileIfMissing()` to seed `auth.txt`/`gamemod.txt` on first
 run) and the other read-only asset directories, plus `COPYING`, `README.txt`,
-and `doc/`, into a dated tarball:
-`linux-release-build/Outgun-<version>-<build date>-linux-x86_64.tar.gz`.
+and `doc/`, into a tarball:
+`linux-release-build/Outgun-<version>-linux-x86_64.tar.gz`.
 
 Unlike the AppImage, this is **not self-contained** — it relies on Allegro 4
 and HawkNL being installed on whatever system it's run on. Use it for a
