@@ -445,12 +445,15 @@ void Server::SettingManager::reset() throw () {
 
     srvmonit_port = -1;
 
-    game_end_delay = 5;
+    game_end_delay = 7;
     game_end_delay_extension = 15;
 
     vote_block_time = 0;    // no limit
     require_specific_map_vote = false;
     random_maprot = false;
+    random_first_map = true;   // matches random_maprot's new default of 2 ("random first map"); also fixes this
+                                // being read (server.cpp's get_random_first_map()) without ever having been
+                                // initialized here before, when no gamemod.txt sets random_maprot explicitly
 
     idlekick_time = 120 * 10;   // 2 minutes in frames
     idlekick_playerlimit = 4;

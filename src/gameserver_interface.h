@@ -56,7 +56,7 @@ public:
     bool showErrorCount;
     bool ownScreen;
 
-    ServerExternalSettings() throw () : dedserver(false), port(DEFAULT_UDP_PORT), minLocalPort(0), maxLocalPort(0), privateserver(false),
+    ServerExternalSettings() throw () : dedserver(false), port(DEFAULT_UDP_PORT), minLocalPort(0), maxLocalPort(0), privateserver(true),
         portForced(false), privSettingForced(false), ipForced(false), server_maxplayers(16), threadLock(true), botTestMode(false), statusOutput(0), showErrorCount(true), ownScreen(false) { }
 };
 

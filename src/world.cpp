@@ -1519,12 +1519,12 @@ void PowerupSettings::reset() throw () {
     pup_power_damage = 2.0;
     pup_weapon_max = 9;
     pup_shield_hits = 0;
-    pup_deathbringer_time = 5.0;
+    pup_deathbringer_time = 4.0;
     shadow_see_shadow = false;
     deathbringer_health_limit = deathbringer_energy_limit = 100;
     deathbringer_health_degradation = deathbringer_energy_degradation = 2.5;
 
-    pups_drop_at_death = false;
+    pups_drop_at_death = true;
     pups_player_max = INT_MAX;
 
     start_shield = false;
@@ -1602,10 +1602,10 @@ void WorldSettings::reset() throw () {
     hit_stun_time = 1.;
     spawn_safe_time = 0.;
     shoot_interval = shoot_interval_with_energy = .5;
-    time_limit = 0;     // no time limit
-    extra_time = 0;
+    time_limit = 6000;  // 10 minutes (frames; see the *60*10 multiplier on the "time_limit" GS_Ulong registration)
+    extra_time = 3000;  // 5 minutes (frames; see time_limit's comment above)
     extra_time_periods = 1;
-    sudden_death = false;
+    sudden_death = true;
     capture_limit = 8;
     win_score_difference = 1;
     flag_return_delay = 1.0;

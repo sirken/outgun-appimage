@@ -2,19 +2,6 @@
 # Bugs
 
 
-# Settings
-
-- Change default values for the following settings:
-- pups_drop_at_death 1
-- private_server 1
-- pup_deathbringer_time 4.0
-- time_limit 10
-- extra_time 5
-- sudden_death 1
-- game_end_delay 7
-- random_maprot 2
-
-
 # Features
 
 - Create map editor
@@ -31,6 +18,35 @@
 
 
 # Done
+
+- ~~Change default values for pups_drop_at_death (1), private_server (1),
+  pup_deathbringer_time (4.0), time_limit (10), extra_time (5),
+  sudden_death (1), game_end_delay (7), random_maprot (2)~~: updated both
+  the C++ code-level defaults and the shipped `config/gamemod.txt` template
+  (which overrides code defaults once seeded to `whereuserdir`), matching
+  the pattern used for the earlier `bot_ping` default change.
+  `src/gameserver_interface.h`: `ServerExternalSettings::privateserver`
+  now defaults to `true`. `src/server_settings.cpp`: `game_end_delay`
+  7 (was 5); `random_maprot` setter path now defaults to "2" (random
+  first map) via `random_maprot = false` / `random_first_map = true`.
+  `src/world.cpp` (`PowerupSettings`/`WorldSettings::reset()`):
+  `pups_drop_at_death` true, `pup_deathbringer_time` 4.0, `time_limit`
+  6000 and `extra_time` 3000 (both in frames — internally minutes are
+  multiplied by `60 * 10`, so these are 10 and 5 minutes respectively),
+  `sudden_death` true. `config/gamemod.txt` updated to match, with each
+  setting's comment corrected to show its new default.
+
+  While tracing `random_maprot`'s two-flag mapping (`random_maprot` +
+  `random_first_map`), found `random_first_map` (`src/server.h`, read by
+  `get_random_first_map()` in `src/server.cpp`) was never given an explicit
+  value in `SettingManager::reset()` — it was only ever set via the
+  gamemod.txt setter, so a server with no `random_maprot` line in its
+  gamemod.txt was reading an uninitialized bool. Fixed by initializing it
+  in `reset()` to `true`, matching the new default. Verified with a clean
+  rebuild, a fresh-`whereuserdir` run (confirmed the seeded gamemod.txt
+  matches the new template exactly), and a minimal-deployment run with no
+  gamemod.txt at all (confirmed no crash from the previously-uninitialized
+  read); no new coredumps in either case.
 
 - ~~Remove date from release filenames~~: dropped the `<build date>`
   component from both `packaging/appimage/build-appimage.sh` and
