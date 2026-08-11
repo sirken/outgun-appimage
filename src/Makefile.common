@@ -360,6 +360,13 @@ $(BINDIR)/tests/binarybuffer$(EXE_SUFFIX) : $(OBJDIR)/gui/binaryaccess.o
 
 $(BINDIR)/tests/formattedtext$(EXE_SUFFIX) : $(COMMON_TEST_OBJS)
 
+# mapeditor_roundtrip needs the same object graph as outgun-ded (Map/Room/WallBase live in
+# world.cpp, which pulls in most of the server engine transitively), minus main.o (this test has
+# its own main()) and nassert.o (tests.o above already provides a testable nAssertFail with
+# matching signatures -- see its own comment -- so it can't be linked alongside nassert.o).
+MAPEDITOR_ROUNDTRIP_OBJS := $(filter-out $(OBJDIR)/text/main.o $(OBJDIR)/text/nassert.o,$(OUTGUN_DEDSERV_OBJS)) $(OBJDIR)/text/mapeditor_doc.o
+$(BINDIR)/tests/mapeditor_roundtrip$(EXE_SUFFIX) : $(MAPEDITOR_ROUNDTRIP_OBJS)
+
 # -- Executing tests: --
 
 $(TEST_EXEC_TARGETS) : % : $(STATUSDIR)/%

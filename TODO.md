@@ -4,7 +4,33 @@
 
 # Features
 
-- Create map editor
+## Add an in-game map editor to create new and edit existing maps
+- New main menu item: 7. Map editor
+- Bump current Help and Exit menu items down to 8 and 9
+- Map editor will be a mouse and keyboard driven GUI
+- Mouse driven for creating shapes, placing spawn points, flags, etc
+- Keyboard shortcuts to change settings, choose tools, place items, etc
+- Looking for a good keyboard/mouse blend that is intuitive, makes sense, and is easy to use
+- Help section with instructions, kb shortcuts, etc
+- Texture theme menu so we can preview the map using locally available themes
+- Some kind of map validator to check for minimum map requirements, structural integrity, etc. This could be a manual or automated process (or both), whatever makes the most sense.
+- See doc folder html pages for mapping tutorials and map specifications
+- Ability to launch the map right from the editor for testing. Have a few pre-launch settings such as bot number and skill, maybe some other basic settings that make sense?
+- Persistent map editor state, so when we come back to the editor it remains as we left it. This only applies to when we're running the game. If we fully quit out of the game, the map editor is back to a clean slate
+- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests, no UI yet) is done -- see "Done" below. Remaining: menu entry + read-only rendering, core mutation (rects, spawns/flags, save, validator), full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
+- Decided: editor-saved maps go in the existing cmaps/ directory; "bot skill" in test-launch just means bot_ping, no separate concept needed
+- Still open: how should "launch this map for testing" actually start a server on the exact map being edited -- new Server/ServerExternalSettings plumbing (forced start map + bot count/ping, bypassing the normal maps/ directory scan), or scripting the existing vote+/forcemap admin flow instead?
+
+
+## Server Settings GUI
+
+- Inside the 4 Local server menu, add a new 5 Server settings menu item
+- Bump Start server, Play on the server, and Stop server down one to 6, 7, and 8
+- New Server settings menu will provide a GUI to manage all the server settings found in the config/gamemod.txt file
+- There are a lot of server settings, so grouping them into separate sub-menus would be helpful. The gamemod.txt file already has groupings that could be used as a guideline
+- Most settings will be either input boxes, checkboxes, or sliders
+- In map settings, it would be nice to show a preview of the map if it is known. If we don't know which map will be used (for example if map rotation is random), show some kind of generic preview instead
+
 
 
 # Questions
@@ -18,6 +44,41 @@
 
 
 # Done
+
+- ~~Map editor Phase 1: internal document model + map-text serializer +
+  automated round-trip tests~~: no UI yet (see "Features" above for the
+  remaining phases) -- this lands the foundation everything else depends
+  on. `src/mapeditor_doc.h`/`.cpp` add a new, fully mutable
+  `EditorMap`/`EditorRoom`/`EditorWall` document model, kept deliberately
+  separate from `world.h`'s `Map`/`Room`/`WallBase` (those are
+  read-mostly and used directly by rendering/collision/networking).
+  `EditorMap::importFrom(const Map&)` builds a document from an
+  already-parsed map; `EditorMap::exportText(ostream&)` writes it back out
+  in the format `Map::parse_line` (`world.cpp`) reads -- always emitting
+  `S 472 354` as the scale, which makes every written coordinate a
+  conversion-free copy of the engine's internal unit (since the parser's
+  own `value * plw/scalex` conversion becomes an identity multiplication
+  at that scale). Also added `WallBase::alpha()` to `world.h` (previously
+  write-only: parsed from the map file's optional alpha field but never
+  read back anywhere in the engine), a prerequisite for the exporter to
+  round-trip it faithfully.
+
+  New automated test `src/tests/mapeditor_roundtrip.cpp`, wired into the
+  existing (until now apparently never-run in this porting effort --
+  found and left a separate, unrelated, pre-existing failure in
+  `tests/binarybuffer.cpp` alone, confirmed via `git stash` to predate
+  this work entirely) `tests/` harness (`make testsuite` /
+  `make run_tests` / `make test_mapeditor_roundtrip`). For every map
+  under `maps/` and `cmaps/`, plus a new hand-authored fixture
+  (`src/tests/mapeditor_fixtures/alpha_respawn.txt`, since no shipped map
+  exercises the alpha extension or point-form `V respawn` areas): parses
+  it, imports it, exports it back to text, re-parses *that*, and
+  structurally compares the two resulting `Map` objects (not `Map::crc`,
+  which is computed over file bytes and isn't expected to match
+  byte-for-byte re-emitted text). All 46 maps pass. Verified with a full
+  clean rebuild of `outgun`/`outgun-ded` (unaffected -- nothing from this
+  phase is wired into gameplay/menus yet) and a smoke-tested dedicated
+  server run, confirming no regression from the `world.h` change.
 
 - ~~Change default values for pups_drop_at_death (1), private_server (1),
   pup_deathbringer_time (4.0), time_limit (10), extra_time (5),

@@ -96,15 +96,16 @@ typedef std::pair<double, Vec> BounceData;
 class WallBase {    // base class
 public:
     WallBase() throw () { }
-    WallBase(int tex_, int alpha_) throw () : tex(tex_), alpha(alpha_) { }
+    WallBase(int tex_, int a_) throw () : tex(tex_), alpha_(a_) { }
     virtual ~WallBase() throw () { }
     virtual bool intersects_rect(double x1, double y1, double x2, double y2) const throw () = 0;
     virtual bool intersects_circ(const Vec& center, double r) const throw () = 0;
     virtual void tryBounce(BounceData* bd, const Vec& st, const Vec& m, double plyRadius) const throw () = 0;
     int texture() const throw () { return tex; }
+    int alpha() const throw () { return alpha_; } // parsed from the map file's optional W/T/C alpha field, but otherwise unused by the engine today (not read by rendering or collision) -- exists so map-editing code can round-trip it faithfully
 
 private:
-    int tex, alpha;
+    int tex, alpha_;
 };
 
 class RectWall : public WallBase {  // rectangular wall
@@ -820,7 +821,7 @@ public:
 
     void pidChange(int newPid) throw () { nAssert(newPid >= 0); ownerPid = newPid; }
 
-    bool expired(double frame) const throw () { return frame > frame0 + 18.; } // so that radius(frame)² > plw² + plh²
+    bool expired(double frame) const throw () { return frame > frame0 + 18.; } // so that radius(frame)ï¿½ > plwï¿½ + plhï¿½
     const WorldCoords& position() const throw () { return pos; }
     double radius(double frame) const throw ();
     int team() const throw () { return ownerTeam; }
