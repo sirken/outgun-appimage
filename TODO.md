@@ -2,6 +2,19 @@
 # Bugs
 
 
+# Settings
+
+- Change default values for the following settings:
+- pups_drop_at_death 1
+- private_server 1
+- pup_deathbringer_time 4.0
+- time_limit 10
+- extra_time 5
+- sudden_death 1
+- game_end_delay 7
+- random_maprot 2
+
+
 # Features
 
 - Create map editor
