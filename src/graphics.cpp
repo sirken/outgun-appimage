@@ -2175,6 +2175,15 @@ void Graphics::draw_fps(double fps) throw () {
     print_text_border_check_bg(text, SCREEN_W - 2 - text_length(font, text), SCREEN_H - text_height(font) - 2, colour[Colour::fps], colour[Colour::text_border], -1);
 }
 
+// Map-editor-only overlay (see TODO.md "Add an in-game map editor"): a small crosshair at the
+// mouse position plus a text readout beside it (e.g. the world coordinates under the cursor).
+void Graphics::draw_mapeditor_overlay(int screenX, int screenY, const string& coordText) throw () {
+    static const int crosshairSize = 6;
+    line(drawbuf, screenX - crosshairSize, screenY, screenX + crosshairSize, screenY, colour[Colour::map_info_grid_main]);
+    line(drawbuf, screenX, screenY - crosshairSize, screenX, screenY + crosshairSize, colour[Colour::map_info_grid_main]);
+    print_text_border_check_bg(coordText, screenX + crosshairSize + 4, screenY + crosshairSize + 4, colour[Colour::fps], colour[Colour::text_border], -1);
+}
+
 void Graphics::map_list(const vector< pair<const MapInfo*, int> >& maps, MapListSortKey sortedBy, int current, int own_vote, const string& edit_vote) throw () {
     const FONT* mlfont;
     if (text_length(font, "i") != text_length(font, "M"))   // map list works only with monospace font
@@ -3284,6 +3293,27 @@ double Graphics::RoomLayoutManager::distanceFromScreenY(int ry, double ly) const
 bool Graphics::RoomLayoutManager::on_screen(int rx, int ry) const throw () {
     return positiveModulo(rx - topLeft.room.x, map_w) <= visible_rooms_x &&
            positiveModulo(ry - topLeft.room.y, map_h) <= visible_rooms_y; // <= instead of <, because the first room may be visible only in part
+}
+
+// Inverse of scale_x/scale_y (added for the map editor's read-only viewer, see TODO.md "Add an
+// in-game map editor"): given a screen pixel, find which world position it corresponds to, or an
+// "unknown" WorldCoords (WorldCoords::unknown(), world.h) if the pixel is outside the playfield.
+// Mirrors room_offset_x/y's own forward formula (offset = plx - pf_scale(topLeft.x) + roomDelta*room_w),
+// solved for roomDelta and the sub-room pixel remainder instead of the other way around.
+WorldCoords Graphics::RoomLayoutManager::screenToWorld(int screenX, int screenY) const throw () {
+    if (screenX < x0() || screenX > xMax() || screenY < y0() || screenY > yMax())
+        return WorldCoords();
+    const int originX = plx - pf_scale(topLeft.x);
+    const int originY = ply - pf_scale(topLeft.y);
+    const int relX = screenX - originX;
+    const int relY = screenY - originY;
+    const int roomDX = static_cast<int>(floor(double(relX) / room_w));
+    const int roomDY = static_cast<int>(floor(double(relY) / room_h));
+    const double localX = (relX - roomDX * room_w) / playfield_scale;
+    const double localY = (relY - roomDY * room_h) / playfield_scale;
+    const int roomX = positiveModulo(topLeft.room.x + roomDX, map_w);
+    const int roomY = positiveModulo(topLeft.room.y + roomDY, map_h);
+    return WorldCoords(RoomCoords(roomX, roomY), localX, localY);
 }
 
 vector<int> Graphics::RoomLayoutManager::room_offset_x(int rx) const throw () {

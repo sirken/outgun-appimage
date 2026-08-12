@@ -17,7 +17,7 @@
 - See doc folder html pages for mapping tutorials and map specifications
 - Ability to launch the map right from the editor for testing. Have a few pre-launch settings such as bot number and skill, maybe some other basic settings that make sense?
 - Persistent map editor state, so when we come back to the editor it remains as we left it. This only applies to when we're running the game. If we fully quit out of the game, the map editor is back to a clean slate
-- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests, no UI yet) is done -- see "Done" below. Remaining: menu entry + read-only rendering, core mutation (rects, spawns/flags, save, validator), full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
+- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests) and Phase 2 (menu entry + read-only viewer: pick an existing map, pan/zoom it with the real minimap/HUD-consistent rendering, mouse coordinate readout) are done -- see "Done" below. Remaining: core mutation (rects, spawns/flags, save, validator), full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
 - Decided: editor-saved maps go in the existing cmaps/ directory; "bot skill" in test-launch just means bot_ping, no separate concept needed
 - Still open: how should "launch this map for testing" actually start a server on the exact map being edited -- new Server/ServerExternalSettings plumbing (forced start map + bot count/ping, bypassing the normal maps/ directory scan), or scripting the existing vote+/forcemap admin flow instead?
 
@@ -44,6 +44,58 @@
 
 
 # Done
+
+- ~~Map editor Phase 2: menu entry + read-only map viewer~~: "7. Map
+  editor" now opens (Help/Exit auto-renumber to 8/9, per `Menu::draw()`'s
+  positional numbering -- no separate renumbering logic needed). New
+  `Menu_mapEditor` (`src/client_menus.h`/`.cpp`), a flat two-group
+  `TextTree` picker ("Standard maps" / "Custom maps", scanning both
+  `wheregamedir` and `whereuserdir` copies of `maps/`/`cmaps/`,
+  de-duplicated by name -- `Map::load()` still decides which copy actually
+  loads). Selecting a map enters `GuiClient::mapEditor_start()`
+  (`guiclient.cpp`), a self-contained loop modeled on the existing
+  `language_selection_start()`: arrow keys pan a whole room at a time with
+  wraparound, PgUp/PgDn zoom, a mouse cursor is shown with a world-coordinate
+  readout (new `RoomLayoutManager::screenToWorld()`/`Graphics::screenToWorld()`
+  in `graphics.h`/`.cpp`, the screen-to-world inverse of the existing
+  `scale_x`/`scale_y`), and the view always renders with `mapInfoMode`
+  forced on (grid + spawn/respawn markers) regardless of the player's
+  Options setting. State (`GuiClient::MapEditorState`, new member) persists
+  in memory for the process's lifetime: opening "Map editor" a second time
+  in the same run skips the picker and resumes exactly where you left off
+  (implemented as a bespoke `.setHook()` on the menu item, `MCF_openMapEditorItem`,
+  since `MenuStack::open()` always shows a submenu once its open-hook has
+  run -- the open-hook itself is the wrong place to skip it).
+
+  Two real bugs found and fixed while making this actually render: (1)
+  `Graphics::draw_background(const Map&, ...)` unconditionally reserves
+  minimap screen space based on `show_minimap` (default on), but nothing
+  in a fresh map-viewer session ever computes `minimap_w/h/x/y` the way a
+  live game does, so the first render asserted
+  (`x0 <= x1 && ... graphics.cpp:3371`) on garbage minimap bounds -- fixed
+  by calling `graphics.update_minimap_background(map)` once per map open,
+  the same call `draw_game_frame()` already makes on a map change, which
+  gives the viewer a real, correctly positioned minimap instead of just
+  papering over the crash. (2) Leaving the viewer left a stale ghost of
+  its last frame (the minimap thumbnail, a coordinate-readout string)
+  visible in the corner of the main menu afterward -- root cause is
+  `Graphics::draw_screen()` alternating `drawbuf` between two physical
+  video pages when page-flipping is active, so a single post-viewer menu
+  frame only refreshes whichever page is current; fixed by drawing two
+  extra blank-background frames when the viewer exits.
+
+  Verified via synthetic X11 input injection (`python-xlib`, since no
+  `xdotool`/similar was available) driving the real client end-to-end:
+  correct item numbering; picker shows accurate counts (20 standard, 25
+  custom maps, matching the Phase 1 round-trip test's own count) and
+  correct filenames; a real map renders correctly (walls, floor texture,
+  grid, team spawn markers, minimap, mouse-coordinate overlay);
+  wraparound panning; Escape returns cleanly to the main menu with no
+  crash and no leftover visual artifacts; re-opening the editor resumes
+  instantly without showing the picker again; and a full local-server
+  play session afterward confirmed normal gameplay HUD/minimap/scoreboard
+  rendering is unaffected. Full clean rebuild and the Phase 1
+  `mapeditor_roundtrip` suite (still 46/46) both re-verified afterward.
 
 - ~~Map editor Phase 1: internal document model + map-text serializer +
   automated round-trip tests~~: no UI yet (see "Features" above for the

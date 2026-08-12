@@ -240,6 +240,17 @@ public:
     double get_visible_rooms_x() const throw () { return roomLayout.visibleRoomsX(); }
     double get_visible_rooms_y() const throw () { return roomLayout.visibleRoomsY(); }
 
+    // Inverse of scale_x/scale_y: which world position (if any) a screen pixel corresponds to.
+    // Returns an "unknown" WorldCoords (see WorldCoords::unknown()) if the point is outside the
+    // playfield area entirely. Needed starting with the map editor's Phase 2 (see TODO.md) --
+    // nothing before it needed a screen->world direction.
+    WorldCoords screenToWorld(int screenX, int screenY) const throw () { return roomLayout.screenToWorld(screenX, screenY); }
+
+    // Small map-editor-only overlay: a cursor mark at (screenX, screenY) plus a text readout
+    // (e.g. the world coordinates under it). Kept as a Graphics method, not raw Allegro calls from
+    // the caller, matching how every other bit of drawbuf access lives inside this class.
+    void draw_mapeditor_overlay(int screenX, int screenY, const std::string& coordText) throw ();
+
 private:
     void unload_bitmaps() throw ();
 
@@ -387,6 +398,8 @@ private:
         double distanceFromScreenY(int ry, double ly) const throw ();
 
         bool on_screen(int rx, int ry) const throw (); // returns true if some part of the room may be on screen
+
+        WorldCoords screenToWorld(int screenX, int screenY) const throw (); // inverse of scale_x/scale_y; see Graphics::screenToWorld
     };
     RoomLayoutManager roomLayout;
 

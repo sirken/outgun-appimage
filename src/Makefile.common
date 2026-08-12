@@ -188,7 +188,7 @@ else
 endif
 
 OUTGUN_COMMON_OBJ_NAMES += world.o servnet.o server.o server_settings.o commont.o main.o names.o auth.o nassert.o globals.o log.o utility.o network.o thread.o gamemod.o debug.o $(BOT_OBJ_NAMES) bot_support.o clientbase.o timer.o language.o mapgen.o version.o mutex.o binaryaccess.o localconnection.o $(PLATFORM_OBJ_NAMES)
-OUTGUN_CLIENT_OBJ_NAMES := $(OUTGUN_COMMON_OBJ_NAMES) antialias.o graphics.o allegro_extensions.o colour.o client_menus.o guiclient.o sounds.o menu.o mappic.o
+OUTGUN_CLIENT_OBJ_NAMES := $(OUTGUN_COMMON_OBJ_NAMES) antialias.o graphics.o allegro_extensions.o colour.o client_menus.o guiclient.o sounds.o menu.o mappic.o mapeditor_doc.o
 ifdef WITH_PNG
  OUTGUN_CLIENT_OBJ_NAMES += loadpng/loadpng.o loadpng/savepng.o loadpng/regpng.o
 endif

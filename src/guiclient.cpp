@@ -401,6 +401,7 @@ GuiClient::GuiClient(const ClientExternalSettings& config, const ServerExternalS
     map_vote(-1),
     want_change_teams(false),
     menusel(menu_none), // must be valid before start() (which normally sets this) since language_selection_start() can run first and calls draw_game_menu()
+    m_quitFlag(0),
     player_stats_page(0),
     lastAltEnterTime(0),
     FPS(0),
@@ -660,6 +661,94 @@ void GuiClient::language_selection_start(volatile bool* quitFlag) throw () {
             screenshot = false;
         }
     }
+}
+
+// Self-contained read-only map viewer (Phase 2 of the map editor feature, see TODO.md and the
+// plan file). Modeled on language_selection_start() above, but this isn't a Menu -- there's no
+// openMenus.empty() to loop on, so it gets its own exit flag -- and it additionally polls the
+// mouse and shows a cursor (the first show_mouse() call site anywhere in this codebase), since
+// later phases need mouse-driven editing and this proves out the infrastructure ahead of that.
+void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
+    log("mapEditor_start()");
+
+    bool exitRequested = false;
+    show_mouse(graphics.drawbuffer());
+
+    while (!exitRequested && !quitCommand && !*quitFlag) {
+        if (keyboard_needs_poll())
+            poll_keyboard();    // ignore return value
+        if (mouse_needs_poll())
+            poll_mouse();
+
+        const bool controlPressed = key[KEY_LCONTROL] || key[KEY_RCONTROL];
+        if (controlPressed && key[KEY_F12]) { // same hard-quit as the main loop()
+            quitCommand = true;
+            break;
+        }
+
+        const Map& map = mapEditorState.renderMap;
+        while (keypressed()) {
+            int ch = readkey();
+            const int sc = (ch >> 8);
+            ch &= 0xFF;
+            if (sc == KEY_F11)
+                screenshot = true;
+            else if (sc == KEY_ESC)
+                exitRequested = true;
+            else if (sc == KEY_LEFT)
+                mapEditorState.panRoom.x = positiveModulo(mapEditorState.panRoom.x - 1, map.w);
+            else if (sc == KEY_RIGHT)
+                mapEditorState.panRoom.x = positiveModulo(mapEditorState.panRoom.x + 1, map.w);
+            else if (sc == KEY_UP)
+                mapEditorState.panRoom.y = positiveModulo(mapEditorState.panRoom.y - 1, map.h);
+            else if (sc == KEY_DOWN)
+                mapEditorState.panRoom.y = positiveModulo(mapEditorState.panRoom.y + 1, map.h);
+            else if (sc == KEY_PGUP && mapEditorState.zoom > 1)
+                --mapEditorState.zoom;
+            else if (sc == KEY_PGDN && mapEditorState.zoom < 20)
+                ++mapEditorState.zoom;
+        }
+
+        sched_yield(); // give other threads a chance, matching language_selection_start() above
+
+        graphics.startDraw();
+
+        VisibilityMap roomVis(map.w);
+        for (int x = 0; x < map.w; ++x)
+            roomVis[x].resize(map.h, 255); // no fog of war -- this is a read-only viewer, not gameplay
+        graphics.setRoomLayout(map, mapEditorState.zoom, true, true); // repeatMapX/Y = true: see the plan's rationale for wraparound panning
+        graphics.draw_background(map, roomVis, WorldCoords(mapEditorState.panRoom, 0, 0),
+                                 menu.options.graphics.contTextures(), true /* mapInfoMode forced on, regardless of the player's Options setting */);
+
+        const WorldCoords underMouse = graphics.screenToWorld(mouse_x, mouse_y);
+        if (!underMouse.unknown()) {
+            ostringstream coordText;
+            coordText << "room " << underMouse.room.x << ',' << underMouse.room.y
+                      << "  (" << iround(underMouse.x) << ", " << iround(underMouse.y) << ')';
+            graphics.draw_mapeditor_overlay(mouse_x, mouse_y, coordText.str());
+        }
+
+        graphics.endDraw();
+        graphics.draw_screen(false);
+        if (screenshot) {
+            save_screenshot();
+            screenshot = false;
+        }
+    }
+
+    // With page flipping, drawbuf alternates between two physical video pages each draw_screen()
+    // call (see Graphics::draw_screen, graphics.cpp) -- one post-viewer menu frame only refreshes
+    // whichever page is current, leaving this viewer's last frame (e.g. its now-stale minimap
+    // thumbnail) visible on the other page until something else happens to flip back to it. Two
+    // extra blank-background frames here (layout is already back to normal -- nothing here touches
+    // show_minimap/make_layout) cover both pages before control returns to the caller's showMenu().
+    for (int i = 0; i < 2; ++i) {
+        graphics.startDraw();
+        graphics.draw_background(false);
+        graphics.endDraw();
+        graphics.draw_screen(false);
+    }
+    show_mouse(NULL);
 }
 
 // incoming chunk of requested file by UDP
@@ -2691,6 +2780,7 @@ void GuiClient::handleGameKeypress(int sc, int ch, bool withControl, bool alt_se
 
 void GuiClient::loop(volatile bool* quitFlag, bool firstTimeSplash) throw () {
     nAssert(quitFlag);
+    m_quitFlag = quitFlag; // so mapEditor_start(), reached via a menu hook deep in this call stack, can honor the same quit flag
     quitCommand = false;
 
     menusel = menu_none;
@@ -4066,6 +4156,11 @@ void GuiClient::initMenus() throw () {
 
     menu.replays.menu               .setOpenHook(new MCB::N<Menu,           &GuiClient::MCF_prepareReplayMenu      >(this));
 
+    // overrides the generic "just open this submenu" hook set by Menu_mapEditor::initialize() above --
+    // see MCF_openMapEditorItem for why this can't be done via setOpenHook instead
+    menu.mapEditor.menu                 .setHook(new MCB::A<Menu,           &GuiClient::MCF_openMapEditorItem      >(this));
+    menu.mapEditor.menu             .setOpenHook(new MCB::N<Menu,           &GuiClient::MCF_prepareMapEditorMenu   >(this));
+
     m_playerPassword.menu             .setOkHook(new MCB::N<Menu,           &GuiClient::MCF_playerPasswordAccept   >(this));
     m_serverPassword.menu             .setOkHook(new MCB::N<Menu,           &GuiClient::MCF_serverPasswordAccept   >(this));
     m_connectProgress.accept            .setHook(new MCB::N<Textarea,       &GuiClient::MCF_menuCloser             >(this));
@@ -4778,6 +4873,70 @@ void GuiClient::MCF_prepareReplayMenu() throw () {
     menu.replays.expandLatest();
 
     saveReplayCache(replays);
+}
+
+void GuiClient::MCF_openMapEditorItem(Menu& menu) throw () {
+    if (mapEditorState.everOpened)
+        mapEditor_start(m_quitFlag);   // resume: never touches openMenus, so the picker is never shown again this run
+    else
+        openMenus.open(&menu);          // first visit this run: show the picker normally
+}
+
+// Scans one maps directory (both the bundled wheregamedir and the writable whereuserdir copies,
+// de-duplicated by name -- Map::load() below decides which copy actually gets used) and adds one
+// picker entry per map found, under 'groupLabel'.
+static void scanMapEditorDir(Menu_mapEditor& picker, const std::string& mapdir, const std::string& groupLabel) throw () {
+    std::set<std::string> names;
+    const std::string roots[2] = { wheregamedir, whereuserdir };
+    for (int r = 0; r < 2; ++r) {
+        FileFinder* finder = platMakeFileFinder(roots[r] + mapdir, ".txt", false);
+        while (finder->hasNext())
+            names.insert(FileName(finder->next()).getBaseName());
+        delete finder;
+    }
+    for (std::set<std::string>::const_iterator ni = names.begin(); ni != names.end(); ++ni)
+        picker.addEntry(groupLabel, mapdir + "/" + *ni, *ni);
+}
+
+void GuiClient::MCF_prepareMapEditorMenu() throw () {
+    menu.mapEditor.reset();
+    scanMapEditorDir(menu.mapEditor, SERVER_MAPS_DIR, _("Standard maps"));
+    scanMapEditorDir(menu.mapEditor, CLIENT_MAPS_DIR, _("Custom maps"));
+
+    typedef MenuCallback<GuiClient> MCB;
+    menu.mapEditor.addHooks(new MCB::A<TreeItem, &GuiClient::MCF_openMap>(this));
+}
+
+void GuiClient::MCF_openMap(TreeItem& target) throw () {
+    const string::size_type slash = target.key().find('/');
+    nAssert(slash != string::npos);
+    const string mapdir = target.key().substr(0, slash);
+    const string mapname = target.key().substr(slash + 1);
+
+    Map m;
+    if (!m.load(log, mapdir, mapname)) {
+        log.error(_("Can't load map $1.", mapname));
+        return;
+    }
+    mapEditorState.renderMap = m;
+    mapEditorState.doc = EditorMap();
+    mapEditorState.doc.importFrom(m);
+    mapEditorState.mapDir = mapdir;
+    mapEditorState.mapName = mapname;
+    mapEditorState.panRoom = RoomCoords(0, 0);
+    mapEditorState.zoom = max(m.w, m.h);   // whole map visible at first
+    mapEditorState.everOpened = true;
+    // draw_background(Map, ...) always reserves screen space for the minimap (per the normal,
+    // unmodified layout -- the viewer deliberately doesn't touch show_minimap/make_layout(), since
+    // that changes the playfield's own size/position too and leaves stale content in whatever
+    // corner the normal layout expects to reserve); populate it for the new map now, the same way
+    // draw_game_frame() does once per map change (guiclient.cpp, gated on needRedrawMap()), so
+    // minimap_w/h/x/y hold real values instead of the make_layout()-time zero default.
+    graphics.update_minimap_background(m);
+
+    openMenus.clear();
+    mapEditor_start(m_quitFlag);
+    showMenu(menu);
 }
 
 void GuiClient::load_highlight_texts() throw () {

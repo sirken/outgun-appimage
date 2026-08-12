@@ -489,6 +489,26 @@ private:
     void addHooksRecursively(TreeItem& item, MenuHookable<TreeItem>::HookFunctionT* hook) throw ();
 };
 
+// Phase 2 of the map editor feature (see TODO.md): a picker for existing maps to open in the
+// read-only viewer. Two flat groups ("Standard maps" / "Custom maps"), no deeper nesting -- unlike
+// Menu_replays, whose items are grouped by date.
+class Menu_mapEditor {
+public:
+    TextTree        items;
+
+    Menu menu;
+
+    Menu_mapEditor() throw ();
+    void initialize(MenuHookable<Menu>::HookFunctionT* opener, SettingCollector& collector) throw ();
+
+    void addEntry(const std::string& group, const std::string& key, const std::string& text) throw ();
+    void reset() throw ();
+    void addHooks(MenuHookable<TreeItem>::HookFunctionT* hook) throw ();
+
+private:
+    void addHooksRecursively(TreeItem& item, MenuHookable<TreeItem>::HookFunctionT* hook) throw ();
+};
+
 class Menu_main {
 public:
     StaticText      newVersion;
@@ -498,6 +518,7 @@ public:
     Menu_ownServer  ownServer;
     Menu_replays    replays;
     Menu_spectate   spectate;
+    Menu_mapEditor  mapEditor;
     Menu_help       help;
     Textarea        exitOutgun;
 

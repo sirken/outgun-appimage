@@ -34,6 +34,7 @@
 #include "client_menus.h"
 #include "gameserver_interface.h"
 #include "graphics.h"
+#include "mapeditor_doc.h"
 #include "menu.h"
 #include "sounds.h"
 #include "thread.h"
@@ -203,6 +204,27 @@ class GuiClient : public ClientBase, public ClientInterface {
     Menu_selection menusel; // a special screen rather than menu: maplist, stats
     bool stats_autoshowing;
 
+    // Map editor (Phase 2, read-only viewer -- see TODO.md "Add an in-game map editor"): its own
+    // self-contained full-screen mode, entered/left via mapEditor_start(), not a normal Menu. This
+    // state deliberately lives here rather than in the Menu_mapEditor picker (client_menus.h) --
+    // GuiClient is constructed once per process and lives for its whole client-mode lifetime, so a
+    // plain member gives "persists while running, reset only on full quit" for free.
+    struct MapEditorState {
+        bool everOpened;      // false until a map has been opened once this run -- see MCF_openMapEditorItem
+        std::string mapDir;   // SERVER_MAPS_DIR or CLIENT_MAPS_DIR
+        std::string mapName;  // bare file base name (no path, no ".txt")
+
+        EditorMap doc;         // Phase-1 document model; imported on load, not yet mutated or rendered from
+        Map renderMap;         // what actually feeds Graphics::setRoomLayout/draw_background
+
+        RoomCoords panRoom;    // top-left room currently shown
+        double zoom;           // the "visible_rooms" value passed to Graphics::setRoomLayout
+
+        MapEditorState() throw () : everOpened(false), panRoom(0, 0), zoom(1) { }
+    };
+    MapEditorState mapEditorState;
+    volatile bool* m_quitFlag; // set at the top of loop(); lets mapEditor_start(), reached via a menu hook, honor the same quit flag loop() was given
+
     bool quitCommand;
 
     std::string hostname;
@@ -328,6 +350,9 @@ class GuiClient : public ClientBase, public ClientInterface {
     void MCF_exitOutgun() throw ();
     void MCF_replay(TreeItem& target) throw ();
     void MCF_prepareReplayMenu() throw ();
+    void MCF_openMapEditorItem(Menu& menu) throw (); // overrides the generic menu-opening hook: skips the picker on the 2nd+ visit
+    void MCF_prepareMapEditorMenu() throw ();
+    void MCF_openMap(TreeItem& target) throw ();
     void MCF_prepareMainMenu() throw ();
     void MCF_preparePlayerMenu() throw ();
     void MCF_prepareDrawPlayerMenu() throw ();
@@ -555,6 +580,7 @@ public:
     void stop() throw ();
     void loop(volatile bool* quitFlag, bool firstTimeSplash) throw ();
     void language_selection_start(volatile bool* quitFlag) throw ();
+    void mapEditor_start(volatile bool* quitFlag) throw ();
 };
 
 #endif
