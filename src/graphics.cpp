@@ -2732,6 +2732,101 @@ bool Graphics::save_map_picture(const string& filename, const Map& map) throw ()
     return !save_bitmap(filename.c_str(), buffer, pal);
 }
 
+// Same minimap_place_w/h-override trick as save_map_picture() above, but rendering into a
+// caller-owned bitmap instead of a temporary one that gets saved to disk -- see the comment on
+// the declaration in graphics.h. save_map_pic=false: normal live-minimap-style room border
+// coloring, not save_map_picture's nicer (but different) exported-PNG variant.
+void Graphics::update_minimap_preview(BITMAP* buffer, const Map& map) throw () {
+    const int old_minimap_p_w = minimap_place_w;
+    const int old_minimap_p_h = minimap_place_h;
+    minimap_place_w = buffer->w;
+    minimap_place_h = buffer->h;
+    update_minimap_background(buffer, map, false);
+    minimap_place_w = old_minimap_p_w;
+    minimap_place_h = old_minimap_p_h;
+}
+
+// Layout for the map editor picker screen (Graphics::draw_mapeditor_picker /
+// mapEditorPickerVisibleRows below) -- a free function, not a Graphics member, so it can be shared
+// between both without either one duplicating the other's arithmetic and risking drift.
+struct MapEditorPickerLayout {
+    int lineH, margin, leftW, rightX, rightW, listTop, listBottom;
+};
+
+static MapEditorPickerLayout computeMapEditorPickerLayout(const FONT* font) throw () {
+    MapEditorPickerLayout l;
+    l.lineH = text_height(font) + 2;
+    l.margin = text_length(font, "M");
+    l.leftW = SCREEN_W * 4 / 10;
+    l.rightX = l.leftW + l.margin;
+    l.rightW = SCREEN_W - l.rightX - l.margin;
+    l.listTop = l.margin + 2 * l.lineH + 4; // below the search box (one line) plus a gap
+    l.listBottom = SCREEN_H - l.margin;
+    return l;
+}
+
+int Graphics::mapEditorPickerVisibleRows() const throw () {
+    const MapEditorPickerLayout l = computeMapEditorPickerLayout(font);
+    return max(0, (l.listBottom - l.listTop) / l.lineH);
+}
+
+void Graphics::mapEditorPickerPreviewSize(int& width, int& height) const throw () {
+    const MapEditorPickerLayout l = computeMapEditorPickerLayout(font);
+    width = max(1, l.rightW);
+    height = max(1, width * 3 / 4); // 4:3 -- update_minimap_background's own aspect-fit logic handles any actual map shape within this
+}
+
+void Graphics::draw_mapeditor_picker(const string& filterText, const vector<MapEditorPickerRow>& rows, int selectedRow,
+                                      int scrollOffset, const MapEditorPickerStats& stats, BITMAP* preview) throw () {
+    const MapEditorPickerLayout l = computeMapEditorPickerLayout(font);
+
+    rectfill(drawbuf, 0, 0, SCREEN_W - 1, SCREEN_H - 1, colour[Colour::screen_background]);
+
+    // Search box: label + typed text + a fixed trailing cursor mark (this screen has no
+    // mid-string cursor positioning, so there's nothing to actually blink/track).
+    const string searchLine = _("Search: $1", filterText) + "_";
+    textout_ex(drawbuf, font, searchLine.c_str(), l.margin, l.margin, colour[Colour::menu_value], -1);
+    hline(drawbuf, l.margin, l.margin + l.lineH, l.leftW - l.margin, colour[Colour::menu_border_highlight]);
+
+    // Left column: grouped/filtered list, already flattened by the caller.
+    int y = l.listTop;
+    for (int i = scrollOffset; i < static_cast<int>(rows.size()) && y + l.lineH <= l.listBottom; ++i, y += l.lineH) {
+        const MapEditorPickerRow& row = rows[i];
+        if (row.isHeader)
+            textout_ex(drawbuf, font, row.text.c_str(), l.margin, y, colour[Colour::menu_caption], -1);
+        else {
+            if (i == selectedRow)
+                rectfill(drawbuf, l.margin, y, l.leftW - l.margin, y + l.lineH - 1, colour[Colour::menu_caption_bg]);
+            const int textCol = (i == selectedRow) ? colour[Colour::menu_active] : colour[Colour::menu_component_caption];
+            textout_ex(drawbuf, font, ("  " + row.text).c_str(), l.margin, y, textCol, -1);
+        }
+    }
+
+    // Right column: stats block, then the preview bitmap (already rendered by the caller).
+    // stats.title is never empty for a validly loaded map (Map::parse_file guarantees it), so an
+    // empty title here means nothing is currently selected (e.g. the filter matches nothing) --
+    // skip the whole block rather than showing "Size: 0 x 0 rooms" and similar nonsense.
+    int ry = l.margin;
+    if (!stats.title.empty()) {
+        textout_ex(drawbuf, font, stats.title.c_str(), l.rightX, ry, colour[Colour::menu_caption], -1);
+        ry += l.lineH;
+        textout_ex(drawbuf, font, _("Author: $1", stats.author.empty() ? _("(unknown)") : stats.author).c_str(), l.rightX, ry, colour[Colour::menu_value], -1);
+        ry += l.lineH;
+        textout_ex(drawbuf, font, _("Size: $1 x $2 rooms", itoa(stats.width), itoa(stats.height)).c_str(), l.rightX, ry, colour[Colour::menu_value], -1);
+        ry += l.lineH;
+        textout_ex(drawbuf, font, _("Flags: R:$1  B:$2  W:$3", itoa(stats.flagsRed), itoa(stats.flagsBlue), itoa(stats.flagsWild)).c_str(), l.rightX, ry, colour[Colour::menu_value], -1);
+        ry += l.lineH;
+        textout_ex(drawbuf, font, _("Spawn points: $1", itoa(stats.spawns)).c_str(), l.rightX, ry, colour[Colour::menu_value], -1);
+        ry += 2 * l.lineH;
+    }
+
+    if (preview) {
+        const int previewX = l.rightX + max(0, (l.rightW - preview->w) / 2);
+        if (previewX + preview->w <= SCREEN_W && ry + preview->h <= SCREEN_H - l.margin)
+            blit(preview, drawbuf, 0, 0, previewX, ry, preview->w, preview->h);
+    }
+}
+
 void Graphics::make_db_effect() throw () {
     db_effect.free();
     const int size = max(1, 2 * pf_scale(2 * PLAYER_RADIUS));

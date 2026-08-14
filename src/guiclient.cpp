@@ -663,6 +663,264 @@ void GuiClient::language_selection_start(volatile bool* quitFlag) throw () {
     }
 }
 
+struct MapEditorPickerEntry {
+    string groupLabel;
+    string mapdir;
+    string mapname;
+    Map map;
+};
+
+// Scans one maps directory (both the bundled wheregamedir and the writable whereuserdir copies,
+// de-duplicated by name -- Map::load() below decides which copy actually gets used), eagerly
+// loading every map found. Cheap: ~45 small text files total across maps/+cmaps/ (confirmed during
+// planning -- largest shipped map file is 84 lines), and Server::reset_settings() (server.cpp)
+// already does an unconditional eager load of this exact file set on every server startup/reload.
+static void scanMapEditorEntries(vector<MapEditorPickerEntry>& entries, LogSet& log, const string& mapdir, const string& groupLabel) throw () {
+    std::set<string> names;
+    const string roots[2] = { wheregamedir, whereuserdir };
+    for (int r = 0; r < 2; ++r) {
+        FileFinder* finder = platMakeFileFinder(roots[r] + mapdir, ".txt", false);
+        while (finder->hasNext())
+            names.insert(FileName(finder->next()).getBaseName());
+        delete finder;
+    }
+    for (std::set<string>::const_iterator ni = names.begin(); ni != names.end(); ++ni) {
+        MapEditorPickerEntry entry;
+        if (!entry.map.load(log, mapdir, *ni)) {
+            log.error(_("Can't load map $1.", *ni));
+            continue;
+        }
+        entry.groupLabel = groupLabel;
+        entry.mapdir = mapdir;
+        entry.mapname = *ni;
+        entries.push_back(entry);
+    }
+}
+
+static bool mapEditorPickerMatchesFilter(const string& mapname, const string& filterText) throw () {
+    return filterText.empty() || tolower(mapname).find(tolower(filterText)) != string::npos;
+}
+
+// Rebuilds the flattened (header rows + matching entries) display list from 'entries' and
+// 'filterText' -- called once on entry and again after every filter-text edit. A group with zero
+// matches gets no header row at all. rowEntryIndex is parallel to rows: -1 for header rows, else
+// the matching index into 'entries'.
+static void rebuildMapEditorPickerRows(const vector<MapEditorPickerEntry>& entries, const string& filterText,
+                                        vector<MapEditorPickerRow>& rows, vector<int>& rowEntryIndex) throw () {
+    rows.clear();
+    rowEntryIndex.clear();
+    string currentGroup;
+    int headerRow = -1;
+    int matchCount = 0;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const MapEditorPickerEntry& e = entries[i];
+        if (e.groupLabel != currentGroup) {
+            currentGroup = e.groupLabel;
+            headerRow = -1;
+            matchCount = 0;
+        }
+        if (!mapEditorPickerMatchesFilter(e.mapname, filterText))
+            continue;
+        if (headerRow == -1) {
+            headerRow = static_cast<int>(rows.size());
+            rows.push_back(MapEditorPickerRow(true, currentGroup));
+            rowEntryIndex.push_back(-1);
+        }
+        rows.push_back(MapEditorPickerRow(false, e.mapname));
+        rowEntryIndex.push_back(static_cast<int>(i));
+        ++matchCount;
+        ostringstream headerText;
+        headerText << currentGroup << " (" << matchCount << ')';
+        rows[headerRow].text = headerText.str();
+    }
+}
+
+static int mapEditorPickerFirstSelectable(const vector<MapEditorPickerRow>& rows) throw () {
+    for (size_t i = 0; i < rows.size(); ++i)
+        if (!rows[i].isHeader)
+            return static_cast<int>(i);
+    return -1;
+}
+
+static int mapEditorPickerNextSelectable(const vector<MapEditorPickerRow>& rows, int from) throw () {
+    for (int i = from + 1; i < static_cast<int>(rows.size()); ++i)
+        if (!rows[i].isHeader)
+            return i;
+    return from; // no next selectable row -- clamp, don't wrap
+}
+
+static int mapEditorPickerPrevSelectable(const vector<MapEditorPickerRow>& rows, int from) throw () {
+    for (int i = from - 1; i >= 0; --i)
+        if (!rows[i].isHeader)
+            return i;
+    return from;
+}
+
+static MapEditorPickerStats mapEditorPickerStatsFor(const Map& m) throw () {
+    MapEditorPickerStats s;
+    s.title = m.title;
+    s.author = m.author;
+    s.width = m.w;
+    s.height = m.h;
+    s.flagsRed = static_cast<int>(m.tinfo[0].flags.size());
+    s.flagsBlue = static_cast<int>(m.tinfo[1].flags.size());
+    s.flagsWild = static_cast<int>(m.wild_flags.size());
+    s.spawns = static_cast<int>(m.tinfo[0].spawn.size() + m.tinfo[1].spawn.size());
+    return s;
+}
+
+// Two-column map picker (Phase 2.5, see TODO.md and the plan file): a live-filterable, grouped
+// list on the left with keyboard focus always on the filter text -- there's nothing else to focus,
+// typed characters always go there by construction, Up/Down/Enter/Escape/Backspace are simply
+// reserved scancodes checked first, same model as the in-game chat box's talkbuffer handling
+// (handleKeypress() above) rather than the Menu/Textfield system -- and a right-column minimap
+// preview + stats panel for whichever map is highlighted. Bespoke self-contained loop, same model
+// as mapEditor_start()/language_selection_start(): the Menu/Component system has no concept of two
+// columns or a live side-panel tied to list selection.
+void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
+    log("mapEditor_pickerScreen()");
+
+    vector<MapEditorPickerEntry> entries;
+    scanMapEditorEntries(entries, log, SERVER_MAPS_DIR, _("Standard maps"));
+    scanMapEditorEntries(entries, log, CLIENT_MAPS_DIR, _("Custom maps"));
+
+    int previewW, previewH;
+    graphics.mapEditorPickerPreviewSize(previewW, previewH);
+    BITMAP* preview = create_bitmap(previewW, previewH);
+    nAssert(preview);
+
+    string filterText;
+    vector<MapEditorPickerRow> rows;
+    vector<int> rowEntryIndex;
+    rebuildMapEditorPickerRows(entries, filterText, rows, rowEntryIndex);
+    int selectedRow = mapEditorPickerFirstSelectable(rows);
+    int scrollOffset = 0;
+    int previewedEntry = -1; // which entries[] index the preview/stats currently reflect; -1 = none yet
+
+    bool exitRequested = false;
+    show_mouse(graphics.drawbuffer());
+
+    while (!exitRequested && !quitCommand && !*quitFlag) {
+        if (keyboard_needs_poll())
+            poll_keyboard();
+        if (mouse_needs_poll())
+            poll_mouse();
+
+        const bool controlPressed = key[KEY_LCONTROL] || key[KEY_RCONTROL];
+        if (controlPressed && key[KEY_F12]) { // same hard-quit as the main loop()
+            quitCommand = true;
+            break;
+        }
+
+        while (keypressed()) {
+            int ch = readkey();
+            const int sc = (ch >> 8);
+            ch &= 0xFF;
+            switch (sc) {
+            case KEY_ESC:
+                exitRequested = true;
+                break;
+            case KEY_UP:
+                selectedRow = mapEditorPickerPrevSelectable(rows, selectedRow);
+                break;
+            case KEY_DOWN:
+                selectedRow = mapEditorPickerNextSelectable(rows, selectedRow);
+                break;
+            case KEY_ENTER: case KEY_ENTER_PAD:
+                if (selectedRow >= 0 && rowEntryIndex[selectedRow] >= 0) {
+                    const MapEditorPickerEntry& entry = entries[rowEntryIndex[selectedRow]];
+                    mapEditorState.renderMap = entry.map;
+                    mapEditorState.doc = EditorMap();
+                    mapEditorState.doc.importFrom(entry.map);
+                    mapEditorState.mapDir = entry.mapdir;
+                    mapEditorState.mapName = entry.mapname;
+                    mapEditorState.panRoom = RoomCoords(0, 0);
+                    mapEditorState.zoom = max(entry.map.w, entry.map.h);   // whole map visible at first
+                    mapEditorState.everOpened = true;
+                    // Populates the *viewer's* in-game-sized minimap (separate bitmap from this
+                    // screen's own preview) -- see the identical comment this had in Phase 2's
+                    // MCF_openMap, now inlined here since that function no longer exists.
+                    graphics.update_minimap_background(entry.map);
+                    destroy_bitmap(preview);
+                    show_mouse(NULL);
+                    mapEditor_start(quitFlag);
+                    // Selecting a map ends this screen -- control doesn't return here after the
+                    // viewer's own Escape, it unwinds straight back to MCF_openMapEditorItem(),
+                    // preserving Phase 2's "picker shown only once per run" design: only the
+                    // *viewer* resumes via mapEditorState.everOpened, never the picker itself. No
+                    // blank-frame drain needed on this exit path -- mapEditor_start()'s own first
+                    // frame (and its own exit-time drain) already fully repaints the screen.
+                    return;
+                }
+                break;
+            case KEY_BACKSPACE:
+                if (!filterText.empty()) {
+                    filterText.erase(filterText.size() - 1);
+                    rebuildMapEditorPickerRows(entries, filterText, rows, rowEntryIndex);
+                    selectedRow = mapEditorPickerFirstSelectable(rows);
+                    scrollOffset = 0;
+                }
+                break;
+            case KEY_F11:
+                screenshot = true;
+                break;
+            default:
+                if (!is_nonprintable_char(ch)) {
+                    filterText += static_cast<char>(ch);
+                    rebuildMapEditorPickerRows(entries, filterText, rows, rowEntryIndex);
+                    selectedRow = mapEditorPickerFirstSelectable(rows);
+                    scrollOffset = 0;
+                }
+            }
+        }
+
+        // Keep the selection visible.
+        const int visibleRows = graphics.mapEditorPickerVisibleRows();
+        if (selectedRow < scrollOffset)
+            scrollOffset = selectedRow;
+        if (visibleRows > 0 && selectedRow >= scrollOffset + visibleRows)
+            scrollOffset = selectedRow - visibleRows + 1;
+        if (scrollOffset < 0)
+            scrollOffset = 0;
+
+        // Only re-render the preview when the highlighted map actually changed (cheap enough to do
+        // on every change -- see the plan's own cost analysis -- but there's no reason to redo it
+        // every frame when the highlight hasn't moved).
+        const int currentEntry = (selectedRow >= 0) ? rowEntryIndex[selectedRow] : -1;
+        if (currentEntry != previewedEntry) {
+            previewedEntry = currentEntry;
+            if (currentEntry >= 0)
+                graphics.update_minimap_preview(preview, entries[currentEntry].map);
+        }
+
+        sched_yield(); // give other threads a chance, matching mapEditor_start()/language_selection_start()
+
+        graphics.startDraw();
+        MapEditorPickerStats stats;
+        if (currentEntry >= 0)
+            stats = mapEditorPickerStatsFor(entries[currentEntry].map);
+        graphics.draw_mapeditor_picker(filterText, rows, selectedRow, scrollOffset, stats, currentEntry >= 0 ? preview : NULL);
+        graphics.endDraw();
+        graphics.draw_screen(false);
+        if (screenshot) {
+            save_screenshot();
+            screenshot = false;
+        }
+    }
+
+    // Same page-flipping-buffer drain mapEditor_start() uses on exit (see its own comment) -- this
+    // is a second bespoke full-screen loop with the identical exposure, needed here since both the
+    // Escape and hard-quit exit paths above go straight back to the sparse main menu rendering.
+    for (int i = 0; i < 2; ++i) {
+        graphics.startDraw();
+        graphics.draw_background(false);
+        graphics.endDraw();
+        graphics.draw_screen(false);
+    }
+    show_mouse(NULL);
+    destroy_bitmap(preview);
+}
+
 // Self-contained read-only map viewer (Phase 2 of the map editor feature, see TODO.md and the
 // plan file). Modeled on language_selection_start() above, but this isn't a Menu -- there's no
 // openMenus.empty() to loop on, so it gets its own exit flag -- and it additionally polls the
@@ -4156,10 +4414,7 @@ void GuiClient::initMenus() throw () {
 
     menu.replays.menu               .setOpenHook(new MCB::N<Menu,           &GuiClient::MCF_prepareReplayMenu      >(this));
 
-    // overrides the generic "just open this submenu" hook set by Menu_mapEditor::initialize() above --
-    // see MCF_openMapEditorItem for why this can't be done via setOpenHook instead
-    menu.mapEditor.menu                 .setHook(new MCB::A<Menu,           &GuiClient::MCF_openMapEditorItem      >(this));
-    menu.mapEditor.menu             .setOpenHook(new MCB::N<Menu,           &GuiClient::MCF_prepareMapEditorMenu   >(this));
+    menu.mapEditor                      .setHook(new MCB::N<Textarea,       &GuiClient::MCF_openMapEditorItem      >(this));
 
     m_playerPassword.menu             .setOkHook(new MCB::N<Menu,           &GuiClient::MCF_playerPasswordAccept   >(this));
     m_serverPassword.menu             .setOkHook(new MCB::N<Menu,           &GuiClient::MCF_serverPasswordAccept   >(this));
@@ -4875,68 +5130,11 @@ void GuiClient::MCF_prepareReplayMenu() throw () {
     saveReplayCache(replays);
 }
 
-void GuiClient::MCF_openMapEditorItem(Menu& menu) throw () {
+void GuiClient::MCF_openMapEditorItem() throw () {
     if (mapEditorState.everOpened)
-        mapEditor_start(m_quitFlag);   // resume: never touches openMenus, so the picker is never shown again this run
+        mapEditor_start(m_quitFlag);        // resume: viewer directly, picker not shown again this run
     else
-        openMenus.open(&menu);          // first visit this run: show the picker normally
-}
-
-// Scans one maps directory (both the bundled wheregamedir and the writable whereuserdir copies,
-// de-duplicated by name -- Map::load() below decides which copy actually gets used) and adds one
-// picker entry per map found, under 'groupLabel'.
-static void scanMapEditorDir(Menu_mapEditor& picker, const std::string& mapdir, const std::string& groupLabel) throw () {
-    std::set<std::string> names;
-    const std::string roots[2] = { wheregamedir, whereuserdir };
-    for (int r = 0; r < 2; ++r) {
-        FileFinder* finder = platMakeFileFinder(roots[r] + mapdir, ".txt", false);
-        while (finder->hasNext())
-            names.insert(FileName(finder->next()).getBaseName());
-        delete finder;
-    }
-    for (std::set<std::string>::const_iterator ni = names.begin(); ni != names.end(); ++ni)
-        picker.addEntry(groupLabel, mapdir + "/" + *ni, *ni);
-}
-
-void GuiClient::MCF_prepareMapEditorMenu() throw () {
-    menu.mapEditor.reset();
-    scanMapEditorDir(menu.mapEditor, SERVER_MAPS_DIR, _("Standard maps"));
-    scanMapEditorDir(menu.mapEditor, CLIENT_MAPS_DIR, _("Custom maps"));
-
-    typedef MenuCallback<GuiClient> MCB;
-    menu.mapEditor.addHooks(new MCB::A<TreeItem, &GuiClient::MCF_openMap>(this));
-}
-
-void GuiClient::MCF_openMap(TreeItem& target) throw () {
-    const string::size_type slash = target.key().find('/');
-    nAssert(slash != string::npos);
-    const string mapdir = target.key().substr(0, slash);
-    const string mapname = target.key().substr(slash + 1);
-
-    Map m;
-    if (!m.load(log, mapdir, mapname)) {
-        log.error(_("Can't load map $1.", mapname));
-        return;
-    }
-    mapEditorState.renderMap = m;
-    mapEditorState.doc = EditorMap();
-    mapEditorState.doc.importFrom(m);
-    mapEditorState.mapDir = mapdir;
-    mapEditorState.mapName = mapname;
-    mapEditorState.panRoom = RoomCoords(0, 0);
-    mapEditorState.zoom = max(m.w, m.h);   // whole map visible at first
-    mapEditorState.everOpened = true;
-    // draw_background(Map, ...) always reserves screen space for the minimap (per the normal,
-    // unmodified layout -- the viewer deliberately doesn't touch show_minimap/make_layout(), since
-    // that changes the playfield's own size/position too and leaves stale content in whatever
-    // corner the normal layout expects to reserve); populate it for the new map now, the same way
-    // draw_game_frame() does once per map change (guiclient.cpp, gated on needRedrawMap()), so
-    // minimap_w/h/x/y hold real values instead of the make_layout()-time zero default.
-    graphics.update_minimap_background(m);
-
-    openMenus.clear();
-    mapEditor_start(m_quitFlag);
-    showMenu(menu);
+        mapEditor_pickerScreen(m_quitFlag); // first visit this run
 }
 
 void GuiClient::load_highlight_texts() throw () {

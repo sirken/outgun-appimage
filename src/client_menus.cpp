@@ -935,55 +935,6 @@ void Menu_replays::addHooksRecursively(TreeItem& item, MenuHookable<TreeItem>::H
             addHooksRecursively(*child, hook);
 }
 
-Menu_mapEditor::Menu_mapEditor() throw () :
-    items   (_("Maps")),
-
-    menu    (_("Map editor"), false)
-{
-    reset();
-}
-
-void Menu_mapEditor::initialize(MenuHookable<Menu>::HookFunctionT* opener, SettingCollector& collector) throw () {
-    menu.setHook(opener);
-    (void)collector;
-}
-
-void Menu_mapEditor::addEntry(const string& group, const string& key, const string& text) throw () {
-    TreeItem* groupItem = items.root().findDeep(group);
-    if (!groupItem) {
-        TreeItem item(group, group);
-        items.root().addChild(item);
-        groupItem = items.root().findDeep(group);
-    }
-    nAssert(groupItem);
-
-    TreeItem* leafItem = groupItem->findDeep(key);
-    if (!leafItem) {
-        TreeItem item(key, text);
-        groupItem->addChild(item);
-    }
-}
-
-void Menu_mapEditor::reset() throw () {
-    menu.clear_components();
-    items.clear();
-    BasicComponentAdder add(menu);
-    add(&items);
-}
-
-void Menu_mapEditor::addHooks(MenuHookable<TreeItem>::HookFunctionT* hook) throw () {
-    addHooksRecursively(items.root(), hook);
-}
-
-void Menu_mapEditor::addHooksRecursively(TreeItem& item, MenuHookable<TreeItem>::HookFunctionT* hook) throw () {
-    // Add hooks only to the map items (the leaves), not the two group nodes ("Standard maps" / "Custom maps").
-    if (!item.hasChildren())
-        item.setHook(hook->clone());
-    else
-        for (TreeItem::Container::iterator child = item.children().begin(); child != item.children().end(); child++)
-            addHooksRecursively(*child, hook);
-}
-
 Menu_main::Menu_main() throw () :
     newVersion  (""),
 
@@ -996,7 +947,7 @@ Menu_main::Menu_main() throw () :
 
     replays     (),
     spectate    (),
-    mapEditor   (),
+    mapEditor   (_("Map editor")),
 
     help        (),
     exitOutgun  (_("Exit Outgun")),
@@ -1011,7 +962,6 @@ void Menu_main::initialize(MenuHookable<Menu>::HookFunctionT* opener, SettingCol
     ownServer.initialize(opener->clone(), collector);
     replays.initialize(opener->clone(), collector);
     spectate.initialize(opener->clone(), collector);
-    mapEditor.initialize(opener->clone(), collector); // hook overridden separately in GuiClient::initMenus() -- see MCF_openMapEditorItem
     help.initialize(opener->clone(), collector);
     DualComponentAdder add(menu, collector);
     add(&newVersion);
@@ -1025,7 +975,7 @@ void Menu_main::initialize(MenuHookable<Menu>::HookFunctionT* opener, SettingCol
     add(&replays.menu);
     add(&spectate.menu);
     add.space();
-    add(&mapEditor.menu);
+    add(&mapEditor);
     add.space();
     add(&help.menu);
     add(&exitOutgun);

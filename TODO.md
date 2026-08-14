@@ -17,7 +17,7 @@
 - See doc folder html pages for mapping tutorials and map specifications
 - Ability to launch the map right from the editor for testing. Have a few pre-launch settings such as bot number and skill, maybe some other basic settings that make sense?
 - Persistent map editor state, so when we come back to the editor it remains as we left it. This only applies to when we're running the game. If we fully quit out of the game, the map editor is back to a clean slate
-- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests) and Phase 2 (menu entry + read-only viewer: pick an existing map, pan/zoom it with the real minimap/HUD-consistent rendering, mouse coordinate readout) are done -- see "Done" below. Remaining: core mutation (rects, spawns/flags, save, validator), full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
+- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests), Phase 2 (menu entry + read-only viewer: pick an existing map, pan/zoom it with the real minimap/HUD-consistent rendering, mouse coordinate readout), and Phase 2.5 (two-column picker screen: live search filter with default focus, grouped map list, minimap preview + stats panel) are done -- see "Done" below. Remaining: "New map" button + core mutation (rects, spawns/flags, save, validator), full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
 - Decided: editor-saved maps go in the existing cmaps/ directory; "bot skill" in test-launch just means bot_ping, no separate concept needed
 - Still open: how should "launch this map for testing" actually start a server on the exact map being edited -- new Server/ServerExternalSettings plumbing (forced start map + bot count/ping, bypassing the normal maps/ directory scan), or scripting the existing vote+/forcemap admin flow instead?
 
@@ -44,6 +44,65 @@
 
 
 # Done
+
+- ~~Map editor Phase 2.5: two-column picker screen (search filter, minimap
+  preview, stats)~~: replaced Phase 2's `Menu`/`TextTree`-based picker with
+  a bespoke two-column full-screen loop,
+  `GuiClient::mapEditor_pickerScreen()` (`guiclient.h`/`.cpp`), modeled on
+  the same self-contained-loop pattern as `mapEditor_start()` itself rather
+  than retrofitted onto the `Menu`/`Component` system, which has no concept
+  of side-by-side columns or a live side-panel independent of what's
+  receiving typed input. `Menu_mapEditor` (`client_menus.h`/`.cpp`) is
+  deleted outright; "7. Map editor" is now a plain `Textarea` hook
+  (`MCF_openMapEditorItem`), matching how `disconnect`/`exitOutgun` are
+  already wired -- this also removes the one awkward part of Phase 2's
+  design, the `.setHook()`-instead-of-`.setOpenHook()` workaround needed
+  specifically because `MenuStack::open()` always shows a submenu once
+  its open-hook has run.
+
+  Left column: a search box (typed characters always go here, giving it
+  "focus by default" with no separate focus state to manage -- same model
+  as the in-game chat box's `talkbuffer` handling) above the map list,
+  grouped into "Standard maps"/"Custom maps" headers with live match
+  counts, filtered by case-insensitive substring match against the
+  filename as you type; Up/Down skip group headers and clamp (don't wrap)
+  at the ends. Right column: stats text (title, author, room size, flag
+  counts broken down as `R:n B:n W:n` since red/blue/wild flags are
+  naturally separate collections, and total spawn points) plus a live
+  minimap preview bitmap, both refreshed on every selection change via a
+  new `Graphics::update_minimap_preview()` (mirrors `save_map_picture`'s
+  internal `minimap_place_w/h` override trick but targets a caller-owned
+  bitmap instead of writing to disk) and a new
+  `Graphics::draw_mapeditor_picker()`. All 45 maps (`maps/` + `cmaps/`,
+  both `wheregamedir` and `whereuserdir` copies, deduplicated) are
+  eagerly `Map::load()`ed once when the screen opens, matching the same
+  eager-load pattern `Server::reset_settings()` already uses on every
+  server startup. Enter opens the highlighted map in the existing Phase 2
+  viewer using the already-loaded `Map` (no re-parse); selecting a map
+  ends the picker screen entirely, so only the *viewer* resumes on a
+  repeat "Map editor" visit via `MapEditorState::everOpened`, exactly
+  matching Phase 2's established once-per-run picker behavior. "New map"
+  button intentionally deferred -- nothing to wire it to until a future
+  phase implements map creation/saving.
+
+  Verified via synthetic X11 input, same methodology as Phase 2: correct
+  two-column layout with accurate live group counts; typing narrows the
+  list immediately with no click needed; Up/Down navigation and live
+  preview/stats refresh; Backspace restores the unfiltered list; Enter
+  opens the correct map in the viewer (confirmed visually correct
+  rendering); Escape from the viewer and Escape from the picker itself
+  (before selecting anything) both return cleanly to the main menu with
+  no crash and no leftover artifacts; re-opening "Map editor" after
+  having opened a map resumes the viewer directly without showing the
+  picker again, and (on a separate fresh process) shows the picker again
+  correctly when nothing was ever opened. A full local-server play
+  session afterward confirmed normal gameplay HUD/minimap/scoreboard
+  rendering is unaffected. No functional bugs found this phase -- a
+  suspected "digit shortcut doesn't open the picker" issue during testing
+  was traced to a test-harness input-timing race (input sent before the
+  freshly launched window was ready to receive it), not a code defect,
+  confirmed by direct runtime inspection of the hook wiring and by the
+  identical input mechanism working reliably on every subsequent attempt.
 
 - ~~Map editor Phase 2: menu entry + read-only map viewer~~: "7. Map
   editor" now opens (Help/Exit auto-renumber to 8/9, per `Menu::draw()`'s

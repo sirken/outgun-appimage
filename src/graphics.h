@@ -86,6 +86,28 @@ private:
     bool is_highlighted;
 };
 
+// Map editor picker screen (see TODO.md "Add an in-game map editor"): one row of the left-column
+// list, already flattened by the caller (GuiClient::mapEditor_pickerScreen) into group-header rows
+// interleaved with the matching map entries beneath each -- Graphics only draws what it's given,
+// it doesn't know about the grouping/filtering itself.
+struct MapEditorPickerRow {
+    bool isHeader;
+    std::string text; // header caption (with a live match count) or a map's bare filename
+
+    MapEditorPickerRow() throw () : isHeader(false) { }
+    MapEditorPickerRow(bool isHeader_, const std::string& text_) throw () : isHeader(isHeader_), text(text_) { }
+};
+
+// Right-column stats for whichever map is currently highlighted.
+struct MapEditorPickerStats {
+    std::string title, author;
+    int width, height;
+    int flagsRed, flagsBlue, flagsWild;
+    int spawns;
+
+    MapEditorPickerStats() throw () : width(0), height(0), flagsRed(0), flagsBlue(0), flagsWild(0), spawns(0) { }
+};
+
 class Graphics {
 public:
     static const int
@@ -204,6 +226,37 @@ public:
     void create_gunexplo(const WorldCoords& pos, int team, double time) throw ();
 
     bool save_map_picture(const std::string& filename, const Map& map) throw ();
+
+    // Renders a map's minimap-style preview into a caller-supplied, caller-owned bitmap at
+    // whatever size the caller wants -- independent of minimap_place_w/h, which is sized for the
+    // small in-game minimap corner widget. Mirrors save_map_picture()'s own approach (temporarily
+    // override minimap_place_w/h around a call to the private update_minimap_background(BITMAP*,
+    // ...) overload) but targets an in-memory bitmap instead of a saved file. Used by the map
+    // editor's picker screen (see TODO.md "Add an in-game map editor") for its live preview panel;
+    // safe to call every time the highlighted map selection changes -- no allocation happens here,
+    // the buffer is entirely caller-owned.
+    void update_minimap_preview(BITMAP* buffer, const Map& map) throw ();
+
+    // How many list rows fit in the picker's left column -- callers need this to clamp their own
+    // scroll-offset bookkeeping in response to Up/Down navigation *before* the next draw call, not
+    // just inside it, so it's exposed as its own query rather than only being an internal detail of
+    // draw_mapeditor_picker() below. Uses the exact same layout math that draw call uses.
+    int mapEditorPickerVisibleRows() const throw ();
+
+    // The size the picker's right-column preview bitmap should be created at, so it fits the
+    // layout exactly (draw_mapeditor_picker() centers whatever size it's given, but a size
+    // mismatch would mean visible margins or -- if too big -- the safety check in that function
+    // silently skipping the blit). Uses the same layout math as the two methods above.
+    void mapEditorPickerPreviewSize(int& width, int& height) const throw ();
+
+    // Draws the map editor's two-column picker screen for one frame: the search box (already-typed
+    // filterText, cursor always at the end -- this screen has no mid-string cursor positioning),
+    // the left-column grouped/filtered list (rows already flattened+filtered by the caller, one
+    // selectedRow highlighted, scrolled to keep it visible), and the right-column stats block +
+    // preview bitmap (already rendered by the caller via update_minimap_preview -- this call only
+    // blits it, it doesn't know how to render a map itself).
+    void draw_mapeditor_picker(const std::string& filterText, const std::vector<MapEditorPickerRow>& rows, int selectedRow,
+                                int scrollOffset, const MapEditorPickerStats& stats, BITMAP* preview) throw ();
 
     void search_themes(LineReceiver& dst_theme, LineReceiver& dst_bg, LineReceiver& dst_colours) const throw ();
     void select_theme(const std::string& name, const std::string& bg_dir, bool use_theme_bg, const std::string& colour_dir, bool use_theme_colours) throw ();

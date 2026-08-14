@@ -350,9 +350,7 @@ class GuiClient : public ClientBase, public ClientInterface {
     void MCF_exitOutgun() throw ();
     void MCF_replay(TreeItem& target) throw ();
     void MCF_prepareReplayMenu() throw ();
-    void MCF_openMapEditorItem(Menu& menu) throw (); // overrides the generic menu-opening hook: skips the picker on the 2nd+ visit
-    void MCF_prepareMapEditorMenu() throw ();
-    void MCF_openMap(TreeItem& target) throw ();
+    void MCF_openMapEditorItem() throw (); // resumes the viewer directly if already opened this run, else shows the picker screen
     void MCF_prepareMainMenu() throw ();
     void MCF_preparePlayerMenu() throw ();
     void MCF_prepareDrawPlayerMenu() throw ();
@@ -580,6 +578,7 @@ public:
     void stop() throw ();
     void loop(volatile bool* quitFlag, bool firstTimeSplash) throw ();
     void language_selection_start(volatile bool* quitFlag) throw ();
+    void mapEditor_pickerScreen(volatile bool* quitFlag) throw ();
     void mapEditor_start(volatile bool* quitFlag) throw ();
 };
 
