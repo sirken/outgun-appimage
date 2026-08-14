@@ -17,7 +17,7 @@
 - See doc folder html pages for mapping tutorials and map specifications
 - Ability to launch the map right from the editor for testing. Have a few pre-launch settings such as bot number and skill, maybe some other basic settings that make sense?
 - Persistent map editor state, so when we come back to the editor it remains as we left it. This only applies to when we're running the game. If we fully quit out of the game, the map editor is back to a clean slate
-- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests), Phase 2 (menu entry + read-only viewer: pick an existing map, pan/zoom it with the real minimap/HUD-consistent rendering, mouse coordinate readout), and Phase 2.5 (two-column picker screen: live search filter with default focus, grouped map list, minimap preview + stats panel) are done -- see "Done" below. Remaining: "New map" button + core mutation (rects, spawns/flags, save, validator), full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
+- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests), Phase 2 (menu entry + read-only viewer: pick an existing map, pan/zoom it with the real minimap/HUD-consistent rendering, mouse coordinate readout), Phase 2.5 (two-column picker screen: live search filter with default focus, grouped map list, minimap preview + stats panel), and Phase 3 ("New map" button + core mutation: draw/move/resize/delete rectangular walls and ground areas, place/remove flags and spawn points with team cycling, save to disk, and a free structural validator) are done -- see "Done" below. Remaining: full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
 - Decided: editor-saved maps go in the existing cmaps/ directory; "bot skill" in test-launch just means bot_ping, no separate concept needed
 - Still open: how should "launch this map for testing" actually start a server on the exact map being edited -- new Server/ServerExternalSettings plumbing (forced start map + bot count/ping, bypassing the normal maps/ directory scan), or scripting the existing vote+/forcemap admin flow instead?
 
@@ -44,6 +44,96 @@
 
 
 # Done
+
+- ~~Map editor Phase 3: "New map" button + core mutation (rects,
+  spawns/flags, save, validator)~~: turns the Phase 2 read-only viewer into
+  an actual editor. `Ctrl+N` in the picker screen (`GuiClient::
+  mapEditor_pickerScreen()`) opens a new `GuiClient::mapEditor_newMapDialog()`
+  sub-loop -- width/height (`Left`/`Right`, clamped 1-16) and a title (same
+  raw-keyboard idiom as the picker's own search box) -- backed by a new
+  `EditorMap::initBlank()` (`mapeditor_doc.h`/`.cpp`) that builds a legal,
+  empty width x height room grid (`Map::parse_file` only requires a
+  non-empty title and w,h != 0, nothing about walls/flags/spawns existing).
+  Confirming hands off into `mapEditor_start()` exactly like opening an
+  existing map does, with the filename auto-derived from the title
+  (`mapEditor_sanitizeFilename`/`mapEditor_uniqueMapName`, `guiclient.cpp`)
+  rather than asked for separately.
+
+  `mapEditor_start()` gained five tools (`1`-`5`: Select, Wall rect, Ground
+  rect, Flag, Spawn), each mouse-driven: drag to draw a new rect (Wall/
+  Ground) or click to place a point (Flag/Spawn, `Tab` cycles team --
+  red/blue/wild for flags, red/blue for spawns, no wild-spawn concept
+  exists); in Select mode, click to select an existing rect or point (new
+  `Graphics::mapEditorHitTest`/`mapEditorHitTestCorner`, priority-ordered
+  walls -> ground -> flags -> spawns), drag its body to move it or a corner
+  to resize it, `Del` to delete it, `[`/`]` to cycle its texture. `Ctrl+S`
+  saves. New `EditorRoom` mutators (`wallAt`/`groundAt`/`eraseWall`/
+  `eraseGround`, `mapeditor_doc.h`) make in-place editing possible; they
+  didn't exist before this phase (Phase 1 only had `addWall`/`addGround`
+  and const readers).
+
+  The one design decision that shapes everything else: every committed
+  edit calls a new `GuiClient::mapEditor_rebuildRenderMap()`, which
+  round-trips `doc` through the *same* `exportText()`/`Map::parse_file()`
+  pair the Phase 1 round-trip test already exercises, rather than writing a
+  second `EditorMap -> Map` converter. This doubles as the phase's
+  validator for free -- `Map::parse_file` already rejects overlapping
+  flags/spawns-on-walls and undersized respawn-area free space -- so a
+  rejected edit is simply rolled back to a pre-edit `EditorMap` copy and
+  reported via an on-screen status line, no separate validation pass
+  needed. Not covered by this (accepted MVP gap, deferred): no minimum-
+  spawn-per-team check, no editing of pre-existing respawn areas.
+
+  New `Graphics` additions supporting all of this, kept as additive
+  siblings of the Phase 2 methods they sit next to (`graphics.h`/`.cpp`):
+  `screenToWorldClampedToRoom` (keeps an in-progress drag confined to the
+  room it started in, instead of jumping to a neighboring/wrapped room
+  when the mouse strays past an edge -- needed since nothing before this
+  phase needed to *constrain* a screen->world conversion, only convert it);
+  `mapEditorHitTest`/`mapEditorHitTestCorner`; `draw_mapeditor_edit_overlay`
+  (status line + live drag-preview rect/point + persistent selection
+  outline, two new `colour_def.inc` entries for the preview/selection
+  colours); `draw_mapeditor_newmap_dialog`. Save
+  (`GuiClient::mapEditor_save()`) mirrors `ServerWorld::generate_map()`'s
+  existing write pattern, always targeting `whereuserdir/cmaps/<name>.txt`
+  regardless of where the map was originally opened from, matching the
+  already-decided "editor-saved maps go in cmaps/" policy and `Map::
+  load()`'s existing "prefer whereuserdir copy" precedence.
+
+  Two real bugs found and fixed while making this actually work: (1) the
+  room-bitmap cache (`Graphics::BackgroundManager`) has no way to know the
+  underlying `Map` object was swapped out for a new one with the same
+  dimensions -- newly-drawn shapes silently didn't render at all until a
+  `graphics.mapChanged()` call was added after every successful commit (and
+  after opening a map, existing or new, for the same reason) to invalidate
+  it; nothing before this phase ever mutated a `Map` object's content
+  mid-session, so this was never exercised. (2) `mapEditor_rebuildRenderMap()`
+  originally passed the real client `log` to the validating `parse_file()`
+  call, so a *correctly rejected* edit (expected, handled, and already
+  shown to the user via the on-screen status line) also logged a real
+  error and surfaced in the scary exit-time "Errors:" summary dialog --
+  switched to a local silent `LogSet(0, 0, 0)`, matching the pattern
+  `mapeditor_roundtrip.cpp`'s own test already uses for the same reason.
+
+  Verified via synthetic X11 input -- mouse click/drag synthesis
+  (`Xlib.ext.xtest` `ButtonPress`/`ButtonRelease` + `root.warp_pointer` for
+  motion; plain `MotionNotify` fake events turned out not to reach
+  Allegro's mouse driver at all, a real gap in the established Phase 2/2.5
+  testing methodology since no phase before this one ever needed to
+  synthesize mouse movement) proven out for the first time this phase.
+  Confirmed end-to-end: New Map dialog -> blank map opens; drawing a wall/
+  ground rect renders immediately; Select/move/resize/delete all update the
+  live view; flag/spawn placement with team cycling; `Ctrl+S` writes the
+  exact expected map-text content to `whereuserdir/cmaps/`; reopening the
+  same map via the picker after a full process restart shows identical
+  content (preview, stats, and the viewer itself) -- a real save-to-disk
+  round-trip, not just in-memory; deliberately overlapping a flag onto a
+  wall is rejected with the shape never added and the wall unchanged
+  (rollback correctness); exiting after a rejected edit produces no error
+  dialog (bug (2) fix confirmed). A full local-server play session
+  afterward confirmed normal gameplay is unaffected. Full clean rebuild and
+  the Phase 1 `mapeditor_roundtrip` suite (extended with one new case for
+  `initBlank`, now 47/47) both re-verified afterward.
 
 - ~~Map editor Phase 2.5: two-column picker screen (search filter, minimap
   preview, stats)~~: replaced Phase 2's `Menu`/`TextTree`-based picker with

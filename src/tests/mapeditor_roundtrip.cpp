@@ -221,6 +221,59 @@ static bool roundTripFile(const string& path) throw () {
     return true;
 }
 
+// EditorMap::initBlank (Phase 3's "New map" starting point) isn't sourced from any file, so it
+// gets its own direct check rather than going through roundTripFile: build a blank document,
+// export it, and confirm the real engine parser accepts it and reports back the expected empty
+// width x height grid with no walls/flags/spawns -- i.e. that a blank map really is legal input to
+// Map::parse_file, not just something EditorMap will happily produce.
+static bool roundTripBlank() throw () {
+    LogSet silentLog(0, 0, 0);
+
+    EditorMap doc;
+    doc.initBlank(3, 2, "Blank Test Map", "Test Author");
+    ostringstream exported;
+    doc.exportText(exported);
+
+    istringstream reimport(exported.str());
+    Map m;
+    if (!m.parse_file(silentLog, reimport)) {
+        cerr << "mapeditor_roundtrip: FAIL (initBlank export failed to parse)\n--- exported text ---\n" << exported.str();
+        return false;
+    }
+
+    bool ok = true;
+    if (m.w != 3 || m.h != 2) {
+        cerr << "mapeditor_roundtrip: FAIL (initBlank size mismatch): " << m.w << 'x' << m.h << " vs 3x2\n";
+        ok = false;
+    }
+    if (m.title != "Blank Test Map") {
+        cerr << "mapeditor_roundtrip: FAIL (initBlank title mismatch): '" << m.title << "'\n";
+        ok = false;
+    }
+    if (m.author != "Test Author") {
+        cerr << "mapeditor_roundtrip: FAIL (initBlank author mismatch): '" << m.author << "'\n";
+        ok = false;
+    }
+    for (int x = 0; x < m.w; ++x)
+        for (int y = 0; y < m.h; ++y) {
+            const Room& r = m[RoomCoords(x, y)];
+            if (!r.readWalls().empty() || !r.readGround().empty()) {
+                cerr << "mapeditor_roundtrip: FAIL (initBlank room " << x << ',' << y << " not empty)\n";
+                ok = false;
+            }
+        }
+    for (int t = 0; t < 2; ++t)
+        if (!m.tinfo[t].flags.empty() || !m.tinfo[t].spawn.empty() || !m.tinfo[t].respawn.empty()) {
+            cerr << "mapeditor_roundtrip: FAIL (initBlank team " << t << " not empty)\n";
+            ok = false;
+        }
+    if (!m.wild_flags.empty()) {
+        cerr << "mapeditor_roundtrip: FAIL (initBlank wild flags not empty)\n";
+        ok = false;
+    }
+    return ok;
+}
+
 int main() {
     // Needed for platMakeFileFinder below (its directory scan joins path + directory_separator +
     // entry name); normally set by platInit(), which this standalone test doesn't call.
@@ -242,6 +295,10 @@ int main() {
         }
         delete finder;
     }
+
+    ++total;
+    if (!roundTripBlank())
+        ++failed;
 
     nAssert(total > 0); // sanity: make sure the directory scan actually found and ran something
     if (failed > 0) {

@@ -142,6 +142,16 @@ public:
     const std::vector<EditorWall*>& readWalls() const throw () { return walls; }
     const std::vector<EditorWall*>& readGround() const throw () { return ground; }
 
+    // In-place mutation/removal for the map editor's move/resize/texture-cycle/delete tools
+    // (Phase 3). Indices refer to the same order as readWalls()/readGround(); an index only
+    // remains valid until the next eraseWall/eraseGround/addWall/addGround call.
+    size_t wallCount() const throw () { return walls.size(); }
+    size_t groundCount() const throw () { return ground.size(); }
+    EditorWall& wallAt(size_t i) throw () { return *walls[i]; }
+    EditorWall& groundAt(size_t i) throw () { return *ground[i]; }
+    void eraseWall(size_t i) throw () { delete walls[i]; walls.erase(walls.begin() + i); }
+    void eraseGround(size_t i) throw () { delete ground[i]; ground.erase(ground.begin() + i); }
+
 private:
     std::vector<EditorWall*> walls, ground; // owned
 };
@@ -164,6 +174,15 @@ public:
     // parsed Map (see world.h / Map::parse_file). Assumes 'map' is valid, since that's the only
     // way to construct one.
     void importFrom(const Map& map) throw ();
+
+    // Rebuilds this document (discarding any previous content) into a blank width x height room
+    // grid with no walls/ground/flags/spawns/respawn areas -- the "New map" starting point (Phase
+    // 3). This is a legal, exportable document: Map::parse_file only requires a non-empty title
+    // and width/height != 0, nothing about walls/flags/spawns existing. 'width'/'height' are
+    // assumed already validated by the caller (in range and > 0); 'title' is assumed non-empty
+    // (Map::parse_file would otherwise reject the exported text, so the caller should check first
+    // rather than relying on that rejection).
+    void initBlank(int width, int height, const std::string& title, const std::string& author = std::string()) throw ();
 
     // Writes this document out in the map-text format that Map::parse_file understands.
     void exportText(std::ostream& out) const throw ();

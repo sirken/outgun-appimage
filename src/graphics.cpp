@@ -2184,6 +2184,160 @@ void Graphics::draw_mapeditor_overlay(int screenX, int screenY, const string& co
     print_text_border_check_bg(coordText, screenX + crosshairSize + 4, screenY + crosshairSize + 4, colour[Colour::fps], colour[Colour::text_border], -1);
 }
 
+// Map editor Phase 3 (rect/point editing, see TODO.md and the plan file): hit-testing and overlay
+// drawing for the Select/WallRect/GroundRect/Flag/Spawn tools. All screen-space projection math
+// stays in here (guiclient.cpp has no access to the private RoomLayoutManager), matching how every
+// other bit of drawbuf/roomLayout access already lives inside this class.
+
+bool Graphics::projectMapEditorPoint(int roomX, int roomY, double x, double y, int& outX, int& outY) const throw () {
+    const vector<int> vx = roomLayout.scale_x(roomX, x);
+    const vector<int> vy = roomLayout.scale_y(roomY, y);
+    if (vx.empty() || vy.empty())
+        return false;
+    outX = vx[0];
+    outY = vy[0];
+    return true;
+}
+
+void Graphics::drawMapEditorRectOutline(const MapEditorOverlayRect& r, int col) throw () {
+    int x1, y1, x2, y2;
+    if (!projectMapEditorPoint(r.roomX, r.roomY, r.x1, r.y1, x1, y1) ||
+        !projectMapEditorPoint(r.roomX, r.roomY, r.x2, r.y2, x2, y2))
+        return;
+    rect(drawbuf, min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2), col);
+}
+
+// Tolerances are in screen pixels, independent of zoom -- deliberately generous since map editing
+// happens at a wide range of zoom levels (mapEditorState.zoom, 1..20 visible rooms) and a precise
+// pixel-exact click would get harder the more zoomed out the view is.
+static const int mapEditorRectHitMarginPx = 5;
+static const int mapEditorPointHitRadiusPx = 10;
+static const int mapEditorCornerHitRadiusPx = 8;
+
+MapEditorHitResult Graphics::mapEditorHitTest(int screenX, int screenY, const vector<MapEditorOverlayRect>& rects, const vector<MapEditorOverlayPoint>& points) const throw () {
+    // Rects before points, in the caller's own order (walls before ground, flags before spawns) --
+    // together this gives the documented walls -> ground -> flags -> spawns tie-break with no extra
+    // bookkeeping here.
+    for (size_t i = 0; i < rects.size(); ++i) {
+        int x1, y1, x2, y2;
+        if (!projectMapEditorPoint(rects[i].roomX, rects[i].roomY, rects[i].x1, rects[i].y1, x1, y1) ||
+            !projectMapEditorPoint(rects[i].roomX, rects[i].roomY, rects[i].x2, rects[i].y2, x2, y2))
+            continue;
+        const int loX = min(x1, x2) - mapEditorRectHitMarginPx, hiX = max(x1, x2) + mapEditorRectHitMarginPx;
+        const int loY = min(y1, y2) - mapEditorRectHitMarginPx, hiY = max(y1, y2) + mapEditorRectHitMarginPx;
+        if (screenX >= loX && screenX <= hiX && screenY >= loY && screenY <= hiY) {
+            MapEditorHitResult r;
+            r.kind = MapEditorHitResult::Rect;
+            r.index = static_cast<int>(i);
+            return r;
+        }
+    }
+    for (size_t i = 0; i < points.size(); ++i) {
+        int px, py;
+        if (!projectMapEditorPoint(points[i].roomX, points[i].roomY, points[i].x, points[i].y, px, py))
+            continue;
+        const int dx = screenX - px, dy = screenY - py;
+        if (dx * dx + dy * dy <= mapEditorPointHitRadiusPx * mapEditorPointHitRadiusPx) {
+            MapEditorHitResult r;
+            r.kind = MapEditorHitResult::Point;
+            r.index = static_cast<int>(i);
+            return r;
+        }
+    }
+    return MapEditorHitResult();
+}
+
+int Graphics::mapEditorHitTestCorner(int screenX, int screenY, const MapEditorOverlayRect& rect_) const throw () {
+    int x1, y1, x2, y2;
+    if (!projectMapEditorPoint(rect_.roomX, rect_.roomY, rect_.x1, rect_.y1, x1, y1) ||
+        !projectMapEditorPoint(rect_.roomX, rect_.roomY, rect_.x2, rect_.y2, x2, y2))
+        return -1;
+    const int cx[4] = { x1, x2, x1, x2 };
+    const int cy[4] = { y1, y1, y2, y2 };
+    int best = -1;
+    int bestDistSq = mapEditorCornerHitRadiusPx * mapEditorCornerHitRadiusPx + 1;
+    for (int i = 0; i < 4; ++i) {
+        const int dx = screenX - cx[i], dy = screenY - cy[i];
+        const int distSq = dx * dx + dy * dy;
+        if (distSq <= mapEditorCornerHitRadiusPx * mapEditorCornerHitRadiusPx && distSq < bestDistSq) {
+            bestDistSq = distSq;
+            best = i;
+        }
+    }
+    return best;
+}
+
+void Graphics::draw_mapeditor_edit_overlay(const string& statusLine,
+                                            const MapEditorOverlayRect* previewRect, const MapEditorOverlayPoint* previewPoint,
+                                            const MapEditorOverlayRect* selectedRect, const MapEditorOverlayPoint* selectedPoint) throw () {
+    if (!statusLine.empty())
+        print_text_border_check_bg(statusLine, 4, 4, colour[Colour::menu_value], colour[Colour::text_border], -1);
+
+    if (selectedRect)
+        drawMapEditorRectOutline(*selectedRect, colour[Colour::mapeditor_selection]);
+    if (selectedPoint) {
+        int px, py;
+        if (projectMapEditorPoint(selectedPoint->roomX, selectedPoint->roomY, selectedPoint->x, selectedPoint->y, px, py))
+            dcircle(drawbuf, px, py, pf_scale(PLAYER_RADIUS) + 2, colour[Colour::mapeditor_selection]);
+    }
+
+    // Drawn after (on top of) the selection outline, since the preview is the more immediately
+    // relevant thing while actively dragging.
+    if (previewRect)
+        drawMapEditorRectOutline(*previewRect, colour[Colour::mapeditor_preview]);
+    if (previewPoint) {
+        int px, py;
+        if (projectMapEditorPoint(previewPoint->roomX, previewPoint->roomY, previewPoint->x, previewPoint->y, px, py))
+            dcircle(drawbuf, px, py, pf_scale(PLAYER_RADIUS), colour[Colour::mapeditor_preview]);
+    }
+}
+
+// "New map" dialog (GuiClient::mapEditor_newMapDialog): a simple centered 3-row box (width,
+// height, title), the focused row highlighted. Not a Menu -- see the plan file for why this phase
+// sticks with the same bespoke raw-keyboard idiom mapEditor_pickerScreen's search box already uses,
+// rather than introducing the Menu/Textfield system into a bespoke full-screen loop for the first
+// time.
+void Graphics::draw_mapeditor_newmap_dialog(int width, int height, const string& title, int focusField, bool showTitleRequiredError) throw () {
+    rectfill(drawbuf, 0, 0, SCREEN_W - 1, SCREEN_H - 1, colour[Colour::screen_background]);
+
+    const int lineH = text_height(font) + 4;
+    const int boxW = max(280, text_length(font, _("Width (rooms): ")) + text_length(font, "MMMMMMMMMMMMMMMMMMMMMMMM"));
+    const int boxH = lineH * 5 + (showTitleRequiredError ? lineH : 0) + 20;
+    const int x1 = (SCREEN_W - boxW) / 2;
+    const int y1 = (SCREEN_H - boxH) / 2;
+    const int x2 = x1 + boxW;
+    const int y2 = y1 + boxH;
+
+    rectfill(drawbuf, x1, y1, x2, y2, colour[Colour::menu_background]);
+    rect(drawbuf, x1, y1, x2, y2, colour[Colour::menu_border_highlight]);
+
+    textout_centre_ex(drawbuf, font, _("New map").c_str(), (x1 + x2) / 2, y1 + 8, colour[Colour::menu_caption], -1);
+
+    int y = y1 + 8 + 2 * lineH;
+    const int labelX = x1 + 16;
+    const int rowX1 = x1 + 8, rowX2 = x2 - 8;
+
+    if (focusField == 0)
+        rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
+    textout_ex(drawbuf, font, _("Width (rooms): $1", itoa(width)).c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+
+    if (focusField == 1)
+        rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
+    textout_ex(drawbuf, font, _("Height (rooms): $1", itoa(height)).c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+
+    if (focusField == 2)
+        rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
+    textout_ex(drawbuf, font, (_("Title: ") + title + "_").c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+
+    if (showTitleRequiredError) {
+        y += 4;
+        textout_ex(drawbuf, font, _("Title required").c_str(), labelX, y, colour[Colour::message_warning], -1);
+    }
+}
+
 void Graphics::map_list(const vector< pair<const MapInfo*, int> >& maps, MapListSortKey sortedBy, int current, int own_vote, const string& edit_vote) throw () {
     const FONT* mlfont;
     if (text_length(font, "i") != text_length(font, "M"))   // map list works only with monospace font
@@ -2787,6 +2941,7 @@ void Graphics::draw_mapeditor_picker(const string& filterText, const vector<MapE
     const string searchLine = _("Search: $1", filterText) + "_";
     textout_ex(drawbuf, font, searchLine.c_str(), l.margin, l.margin, colour[Colour::menu_value], -1);
     hline(drawbuf, l.margin, l.margin + l.lineH, l.leftW - l.margin, colour[Colour::menu_border_highlight]);
+    textout_ex(drawbuf, font, _("Ctrl+N: New map").c_str(), l.margin, l.margin + l.lineH + 2, colour[Colour::menu_disabled], -1);
 
     // Left column: grouped/filtered list, already flattened by the caller.
     int y = l.listTop;
@@ -3409,6 +3564,22 @@ WorldCoords Graphics::RoomLayoutManager::screenToWorld(int screenX, int screenY)
     const int roomX = positiveModulo(topLeft.room.x + roomDX, map_w);
     const int roomY = positiveModulo(topLeft.room.y + roomDY, map_h);
     return WorldCoords(RoomCoords(roomX, roomY), localX, localY);
+}
+
+// Same idea as screenToWorld above, but the result is always inside 'room': the pixel is clamped
+// to that room's own on-screen rectangle (its primary on-screen instance -- see the comment on
+// Graphics::projectMapEditorPoint for why only the primary instance matters here) before doing the
+// same inverse-projection math. Used by the map editor's drag state machine (Phase 3, see the plan
+// file) to keep an in-progress drag from jumping to a different or wrapped-around room when the
+// mouse strays past a room edge mid-drag.
+WorldCoords Graphics::RoomLayoutManager::screenToWorldClampedToRoom(int screenX, int screenY, RoomCoords room) const throw () {
+    const vector<int> ox = room_offset_x(room.x);
+    const vector<int> oy = room_offset_y(room.y);
+    if (ox.empty() || oy.empty())
+        return WorldCoords(); // room isn't on screen right now -- shouldn't normally happen mid-drag
+    const int clampedX = max(ox[0], min(screenX, ox[0] + room_w - 1));
+    const int clampedY = max(oy[0], min(screenY, oy[0] + room_h - 1));
+    return screenToWorld(clampedX, clampedY);
 }
 
 vector<int> Graphics::RoomLayoutManager::room_offset_x(int rx) const throw () {

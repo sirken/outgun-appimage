@@ -109,6 +109,12 @@ COL(map_room_highlight         , 0xFF, 0xFF, 0x00)
 COMMENT("Set temporary colour different from any other map colour")
 COL(map_temporary              , 0x00, 0xFF, 0xFF)
 
+SECTION("Map editor")
+COMMENT("Rubber-band preview while dragging out a new/resized shape")
+COL(mapeditor_preview          , 0x00, 0xFF, 0xFF)
+COMMENT("Outline around the currently selected shape")
+COL(mapeditor_selection        , 0xFF, 0x80, 0x00)
+
 SECTION("Bars")
 COL(bar_text                   , 0xFF, 0xFF, 0xFF)
 COL(bar_0                      , 0x00, 0x00, 0x00)

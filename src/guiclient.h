@@ -204,18 +204,18 @@ class GuiClient : public ClientBase, public ClientInterface {
     Menu_selection menusel; // a special screen rather than menu: maplist, stats
     bool stats_autoshowing;
 
-    // Map editor (Phase 2, read-only viewer -- see TODO.md "Add an in-game map editor"): its own
-    // self-contained full-screen mode, entered/left via mapEditor_start(), not a normal Menu. This
-    // state deliberately lives here rather than in the Menu_mapEditor picker (client_menus.h) --
-    // GuiClient is constructed once per process and lives for its whole client-mode lifetime, so a
-    // plain member gives "persists while running, reset only on full quit" for free.
+    // Map editor (see TODO.md "Add an in-game map editor"): its own self-contained full-screen
+    // mode, entered/left via mapEditor_start(), not a normal Menu. This state deliberately lives
+    // here rather than in the picker (mapEditor_pickerScreen, guiclient.cpp) -- GuiClient is
+    // constructed once per process and lives for its whole client-mode lifetime, so a plain member
+    // gives "persists while running, reset only on full quit" for free.
     struct MapEditorState {
         bool everOpened;      // false until a map has been opened once this run -- see MCF_openMapEditorItem
-        std::string mapDir;   // SERVER_MAPS_DIR or CLIENT_MAPS_DIR
+        std::string mapDir;   // SERVER_MAPS_DIR or CLIENT_MAPS_DIR (unused by Save -- see mapEditor_save)
         std::string mapName;  // bare file base name (no path, no ".txt")
 
-        EditorMap doc;         // Phase-1 document model; imported on load, not yet mutated or rendered from
-        Map renderMap;         // what actually feeds Graphics::setRoomLayout/draw_background
+        EditorMap doc;         // Phase-1 document model; mutated in place by mapEditor_start()'s editing tools (Phase 3)
+        Map renderMap;         // what actually feeds Graphics::setRoomLayout/draw_background; kept in sync with 'doc' via mapEditor_rebuildRenderMap() after every committed edit
 
         RoomCoords panRoom;    // top-left room currently shown
         double zoom;           // the "visible_rooms" value passed to Graphics::setRoomLayout
@@ -351,6 +351,12 @@ class GuiClient : public ClientBase, public ClientInterface {
     void MCF_replay(TreeItem& target) throw ();
     void MCF_prepareReplayMenu() throw ();
     void MCF_openMapEditorItem() throw (); // resumes the viewer directly if already opened this run, else shows the picker screen
+
+    // Map editor Phase 3 helpers (mapEditor_pickerScreen/mapEditor_start, guiclient.cpp) -- see the
+    // MapEditorState comment above for how mapEditorState.doc/renderMap relate.
+    bool mapEditor_rebuildRenderMap() throw (); // re-derives renderMap from doc via exportText/parse_file; also this phase's validator (see plan)
+    bool mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int& height, std::string& title) throw (); // true if confirmed
+    bool mapEditor_save() throw ();
     void MCF_prepareMainMenu() throw ();
     void MCF_preparePlayerMenu() throw ();
     void MCF_prepareDrawPlayerMenu() throw ();

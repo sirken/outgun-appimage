@@ -769,6 +769,166 @@ static MapEditorPickerStats mapEditorPickerStatsFor(const Map& m) throw () {
     return s;
 }
 
+// Re-derives mapEditorState.renderMap from mapEditorState.doc by round-tripping through the same
+// exportText()/Map::parse_file() pair the Phase 1 round-trip test already exercises exhaustively,
+// rather than writing a second, separate EditorMap -> Map converter (Phase 3, see the plan file).
+// Called once per *committed* edit (never per-frame during an in-progress drag) -- this doubles as
+// this phase's validator: Map::parse_file() rejects overlapping flags/spawns-on-walls and
+// undersized respawn-area free space, so a commit that breaks either of those simply fails here,
+// and the caller is expected to roll 'doc' back to its pre-edit state (see mapEditor_start()'s
+// commit protocol). Uses a silent LogSet, not the real 'log' member: a rejected edit is an
+// expected, handled outcome from the user's perspective (the caller already shows an on-screen
+// "Edit rejected" status message), not a genuine application error -- logging it for real would
+// otherwise pollute clientlog.txt and trigger the scary exit-time "Errors" summary dialog on every
+// single edit a user tries and reconsiders, which isn't an error at all.
+bool GuiClient::mapEditor_rebuildRenderMap() throw () {
+    LogSet silentLog(0, 0, 0);
+    ostringstream exported;
+    mapEditorState.doc.exportText(exported);
+    istringstream reimport(exported.str());
+    Map newMap;
+    if (!newMap.parse_file(silentLog, reimport))
+        return false; // renderMap left untouched -- last-known-good state survives a rejected edit
+    mapEditorState.renderMap = newMap;
+    return true;
+}
+
+// Turns a user-typed map title into a safe filename base for saving under cmaps/ (Phase 3's "New
+// map" flow, see the plan file) -- lowercased, anything outside [a-z0-9] collapsed to a single
+// '_', leading/trailing/repeated '_' avoided. Falls back to a fixed literal if that leaves nothing
+// usable (e.g. a title made entirely of punctuation).
+static string mapEditor_sanitizeFilename(const string& title) throw () {
+    const string lower = tolower(title);
+    string out;
+    bool lastWasUnderscore = true; // true initially so a leading run of non-alnum chars is dropped, not turned into a leading '_'
+    for (string::const_iterator i = lower.begin(); i != lower.end(); ++i) {
+        const char c = *i;
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            out += c;
+            lastWasUnderscore = false;
+        }
+        else if (!lastWasUnderscore) {
+            out += '_';
+            lastWasUnderscore = true;
+        }
+    }
+    while (!out.empty() && out[out.size() - 1] == '_')
+        out.erase(out.size() - 1);
+    if (out.empty())
+        out = "map";
+    return out;
+}
+
+// Appends "_2", "_3", ... to 'base' until the result doesn't collide with an existing map file
+// under either copy of cmaps/ (same two-root check scanMapEditorEntries above uses). Save (Phase 3)
+// always writes to the whereuserdir copy, but a brand new name that happens to already exist in the
+// read-only wheregamedir copy should still get a fresh name rather than silently shadow it.
+static string mapEditor_uniqueMapName(const string& base) throw () {
+    string candidate = base;
+    for (int n = 2; ; ++n) {
+        const string userPath = whereuserdir + CLIENT_MAPS_DIR + directory_separator + candidate + ".txt";
+        const string gamePath = wheregamedir + CLIENT_MAPS_DIR + directory_separator + candidate + ".txt";
+        if (!platIsFile(userPath) && !platIsFile(gamePath))
+            return candidate;
+        ostringstream os;
+        os << base << '_' << n;
+        candidate = os.str();
+    }
+}
+
+// "New map" dialog (Phase 3, see TODO.md and the plan file): a tiny bespoke sub-loop for the three
+// fields a blank map needs (width, height, title). Modeled structurally on mapEditor_pickerScreen()
+// below (same poll/hard-quit/keypress-switch shape), but note it does *not* manage mouse visibility
+// or do the page-flip blank-frame exit drain -- unlike mapEditor_pickerScreen()/mapEditor_start(),
+// this is always a short-lived nested loop called from within mapEditor_pickerScreen()'s own
+// already-running loop, which continues drawing immediately afterward either way (Ctrl+N cancelled
+// falls back to the still-active picker; confirmed proceeds into mapEditor_start()), so there's
+// never a "returning to the sparse main menu" moment here that would need either one. Returns true
+// if confirmed (Enter with a non-empty title), false if cancelled (Escape) or the process is
+// quitting.
+bool GuiClient::mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int& height, string& title) throw () {
+    width = 3;
+    height = 3;
+    title.clear();
+    int focusField = 0; // 0=width, 1=height, 2=title
+    bool showTitleRequiredError = false;
+    bool confirmed = false;
+    bool cancelled = false;
+
+    while (!confirmed && !cancelled && !quitCommand && !*quitFlag) {
+        if (keyboard_needs_poll())
+            poll_keyboard();
+        if (mouse_needs_poll())
+            poll_mouse();
+
+        const bool controlPressed = key[KEY_LCONTROL] || key[KEY_RCONTROL];
+        if (controlPressed && key[KEY_F12]) { // same hard-quit as the main loop()
+            quitCommand = true;
+            break;
+        }
+
+        while (keypressed()) {
+            int ch = readkey();
+            const int sc = (ch >> 8);
+            ch &= 0xFF;
+            switch (sc) {
+            case KEY_ESC:
+                cancelled = true;
+                break;
+            case KEY_UP:
+                focusField = (focusField + 2) % 3;
+                break;
+            case KEY_DOWN:
+                focusField = (focusField + 1) % 3;
+                break;
+            case KEY_LEFT:
+                if (focusField == 0 && width > 1)
+                    --width;
+                else if (focusField == 1 && height > 1)
+                    --height;
+                break;
+            case KEY_RIGHT:
+                if (focusField == 0 && width < 16)
+                    ++width;
+                else if (focusField == 1 && height < 16)
+                    ++height;
+                break;
+            case KEY_BACKSPACE:
+                if (focusField == 2 && !title.empty())
+                    title.erase(title.size() - 1);
+                break;
+            case KEY_ENTER: case KEY_ENTER_PAD:
+                if (title.empty())
+                    showTitleRequiredError = true;
+                else
+                    confirmed = true;
+                break;
+            case KEY_F11:
+                screenshot = true;
+                break;
+            default:
+                if (focusField == 2 && !is_nonprintable_char(ch)) {
+                    title += static_cast<char>(ch);
+                    showTitleRequiredError = false;
+                }
+            }
+        }
+
+        sched_yield(); // give other threads a chance, matching mapEditor_pickerScreen()/mapEditor_start()
+
+        graphics.startDraw();
+        graphics.draw_mapeditor_newmap_dialog(width, height, title, focusField, showTitleRequiredError);
+        graphics.endDraw();
+        graphics.draw_screen(false);
+        if (screenshot) {
+            save_screenshot();
+            screenshot = false;
+        }
+    }
+
+    return confirmed;
+}
+
 // Two-column map picker (Phase 2.5, see TODO.md and the plan file): a live-filterable, grouped
 // list on the left with keyboard focus always on the filter text -- there's nothing else to focus,
 // typed characters always go there by construction, Up/Down/Enter/Escape/Backspace are simply
@@ -841,6 +1001,7 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                     // screen's own preview) -- see the identical comment this had in Phase 2's
                     // MCF_openMap, now inlined here since that function no longer exists.
                     graphics.update_minimap_background(entry.map);
+                    graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
                     destroy_bitmap(preview);
                     show_mouse(NULL);
                     mapEditor_start(quitFlag);
@@ -863,6 +1024,30 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                 break;
             case KEY_F11:
                 screenshot = true;
+                break;
+            case KEY_N:
+                if (controlPressed) {
+                    int newWidth, newHeight;
+                    string newTitle;
+                    if (mapEditor_newMapDialog(quitFlag, newWidth, newHeight, newTitle)) {
+                        mapEditorState.doc = EditorMap();
+                        mapEditorState.doc.initBlank(newWidth, newHeight, newTitle);
+                        mapEditorState.mapDir = CLIENT_MAPS_DIR;
+                        mapEditorState.mapName = mapEditor_uniqueMapName(mapEditor_sanitizeFilename(newTitle));
+                        mapEditor_rebuildRenderMap(); // always succeeds for a freshly-initBlank()ed map -- see EditorMap::initBlank's own contract
+                        graphics.update_minimap_background(mapEditorState.renderMap);
+                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                        mapEditorState.panRoom = RoomCoords(0, 0);
+                        mapEditorState.zoom = max(newWidth, newHeight);
+                        mapEditorState.everOpened = true;
+                        destroy_bitmap(preview);
+                        show_mouse(NULL);
+                        mapEditor_start(quitFlag);
+                        return; // same "picker shown only once per run" reasoning as the Enter-to-open case above
+                    }
+                    // Cancelled (or quitting) -- fall back to the still-running picker loop below;
+                    // mapEditorState was never touched, so there's nothing to undo.
+                }
                 break;
             default:
                 if (!is_nonprintable_char(ch)) {
@@ -921,16 +1106,144 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
     destroy_bitmap(preview);
 }
 
-// Self-contained read-only map viewer (Phase 2 of the map editor feature, see TODO.md and the
-// plan file). Modeled on language_selection_start() above, but this isn't a Menu -- there's no
+// Map editor Phase 3 core-mutation support types/helpers (see TODO.md and the plan file). Kept at
+// file scope, not local to mapEditor_start() below -- C++98 doesn't allow a function-local type to
+// be used as a parameter of another (non-member, non-local) function, and these are shared between
+// mapEditor_start()'s own key/mouse handling and the small helper functions right below.
+
+enum MapEditorTool { MET_Select, MET_WallRect, MET_GroundRect, MET_Flag, MET_Spawn };
+
+struct MapEditorSelection {
+    enum Kind { None, Wall, Ground, Flag, Spawn } kind;
+    int roomX, roomY;
+    int index; // index into EditorRoom::walls/ground (Wall/Ground), or team[t]/wildFlags/team[t].spawns (Flag/Spawn)
+    int team;  // meaningful for Flag (0/1/2, 2=wild) and Spawn (0/1)
+    MapEditorSelection() throw () : kind(None), roomX(0), roomY(0), index(-1), team(0) { }
+};
+
+struct MapEditorDrag {
+    enum Mode { None, NewRect, NewPoint, Move, Resize } mode;
+    RoomCoords room;
+    double startX, startY; // room-local, at press
+    double curX, curY;     // room-local, updated every frame while dragging
+    int corner;             // which corner of the selected rect is being resized (0=x1y1,1=x2y1,2=x1y2,3=x2y2); meaningful only for Resize
+    MapEditorDrag() throw () : mode(None), room(0, 0), startX(0), startY(0), curX(0), curY(0), corner(-1) { }
+};
+
+// Flat, priority-ordered (walls -> ground -> flags -> spawns) candidate lists for one room, built
+// fresh on every mouse press in Select-tool mode -- see Graphics::mapEditorHitTest's own comment
+// for why the caller (here) does the ordering rather than Graphics itself.
+struct MapEditorHitCandidates {
+    vector<MapEditorOverlayRect> rects;
+    vector<bool> rectIsGround;
+    vector<int> rectOrigIndex;
+    vector<MapEditorOverlayPoint> points;
+    vector<bool> pointIsSpawn;
+    vector<int> pointTeam; // 0/1/2 for flags (2=wild), 0/1 for spawns
+    vector<int> pointOrigIndex;
+};
+
+static void mapEditor_buildHitCandidates(EditorMap& doc, RoomCoords room, MapEditorHitCandidates& out) throw () {
+    out.rects.clear(); out.rectIsGround.clear(); out.rectOrigIndex.clear();
+    out.points.clear(); out.pointIsSpawn.clear(); out.pointTeam.clear(); out.pointOrigIndex.clear();
+
+    EditorRoom& r = doc.room(room.x, room.y);
+    for (size_t i = 0; i < r.wallCount(); ++i)
+        if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(&r.wallAt(i))) {
+            out.rects.push_back(MapEditorOverlayRect(room.x, room.y, rw->x1, rw->y1, rw->x2, rw->y2));
+            out.rectIsGround.push_back(false);
+            out.rectOrigIndex.push_back(static_cast<int>(i));
+        }
+    for (size_t i = 0; i < r.groundCount(); ++i)
+        if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(&r.groundAt(i))) {
+            out.rects.push_back(MapEditorOverlayRect(room.x, room.y, rw->x1, rw->y1, rw->x2, rw->y2));
+            out.rectIsGround.push_back(true);
+            out.rectOrigIndex.push_back(static_cast<int>(i));
+        }
+    for (int t = 0; t < 2; ++t)
+        for (size_t i = 0; i < doc.team[t].flags.size(); ++i) {
+            const EditorMapArea& a = doc.team[t].flags[i];
+            if (a.roomX == room.x && a.roomY == room.y) {
+                out.points.push_back(MapEditorOverlayPoint(room.x, room.y, a.x1, a.y1));
+                out.pointIsSpawn.push_back(false);
+                out.pointTeam.push_back(t);
+                out.pointOrigIndex.push_back(static_cast<int>(i));
+            }
+        }
+    for (size_t i = 0; i < doc.wildFlags.size(); ++i) {
+        const EditorMapArea& a = doc.wildFlags[i];
+        if (a.roomX == room.x && a.roomY == room.y) {
+            out.points.push_back(MapEditorOverlayPoint(room.x, room.y, a.x1, a.y1));
+            out.pointIsSpawn.push_back(false);
+            out.pointTeam.push_back(2);
+            out.pointOrigIndex.push_back(static_cast<int>(i));
+        }
+    }
+    for (int t = 0; t < 2; ++t)
+        for (size_t i = 0; i < doc.team[t].spawns.size(); ++i) {
+            const EditorMapArea& a = doc.team[t].spawns[i];
+            if (a.roomX == room.x && a.roomY == room.y) {
+                out.points.push_back(MapEditorOverlayPoint(room.x, room.y, a.x1, a.y1));
+                out.pointIsSpawn.push_back(true);
+                out.pointTeam.push_back(t);
+                out.pointOrigIndex.push_back(static_cast<int>(i));
+            }
+        }
+}
+
+// Fetches the selected shape's live EditorRectWall*, or NULL if the selection isn't currently a
+// rect -- used both to read current geometry (persistent selection outline, move/resize preview
+// starting point) and to mutate it directly (on commit).
+static EditorRectWall* mapEditor_selectionRectWall(EditorMap& doc, const MapEditorSelection& sel) throw () {
+    if (sel.kind != MapEditorSelection::Wall && sel.kind != MapEditorSelection::Ground)
+        return 0;
+    EditorRoom& r = doc.room(sel.roomX, sel.roomY);
+    EditorWall& w = (sel.kind == MapEditorSelection::Wall) ? r.wallAt(sel.index) : r.groundAt(sel.index);
+    return dynamic_cast<EditorRectWall*>(&w);
+}
+
+// Same idea for a flag/spawn selection's EditorMapArea*.
+static EditorMapArea* mapEditor_selectionArea(EditorMap& doc, const MapEditorSelection& sel) throw () {
+    if (sel.kind == MapEditorSelection::Flag)
+        return (sel.team == 2) ? &doc.wildFlags[sel.index] : &doc.team[sel.team].flags[sel.index];
+    if (sel.kind == MapEditorSelection::Spawn)
+        return &doc.team[sel.team].spawns[sel.index];
+    return 0;
+}
+
+// Writes the current document out to whereuserdir/cmaps/<mapName>.txt, mirroring
+// ServerWorld::generate_map()'s existing write pattern (world.cpp) -- always targets the writable
+// cmaps/ copy regardless of where the map was originally opened from (mapEditorState.mapDir isn't
+// read here at all), matching the "editor-saved maps go in cmaps/" decision (see TODO.md and the
+// plan file). No extra validation needed at save time: every prior committed edit already passed
+// mapEditor_rebuildRenderMap(), so 'doc' is already known to reparse successfully.
+bool GuiClient::mapEditor_save() throw () {
+    const string fileName = whereuserdir + CLIENT_MAPS_DIR + directory_separator + mapEditorState.mapName + ".txt";
+    ofstream out(fileName.c_str(), ios::binary);
+    if (!out)
+        return false;
+    mapEditorState.doc.exportText(out);
+    return !out.fail();
+}
+
+// Self-contained map viewer/editor (Phase 2 built the read-only viewer; Phase 3 -- see TODO.md and
+// the plan file -- adds the Select/WallRect/GroundRect/Flag/Spawn tools, mouse drag editing, and
+// Ctrl+S save). Modeled on language_selection_start() above, but this isn't a Menu -- there's no
 // openMenus.empty() to loop on, so it gets its own exit flag -- and it additionally polls the
-// mouse and shows a cursor (the first show_mouse() call site anywhere in this codebase), since
-// later phases need mouse-driven editing and this proves out the infrastructure ahead of that.
+// mouse and shows a cursor (the first show_mouse() call site anywhere in this codebase).
 void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
     log("mapEditor_start()");
 
     bool exitRequested = false;
     show_mouse(graphics.drawbuffer());
+
+    MapEditorTool tool = MET_Select;
+    int currentTexture = 0; // 0..7, used for newly-drawn wall/ground rects
+    int currentTeam = 0;    // flags: 0=red,1=blue,2=wild; spawns: 0=red,1=blue
+    MapEditorSelection selection;
+    MapEditorDrag drag;
+    int prevMouseB = 0;
+    string statusMessage; // save confirmation or an edit-rejected error, shown until the next state change
 
     while (!exitRequested && !quitCommand && !*quitFlag) {
         if (keyboard_needs_poll())
@@ -951,8 +1264,12 @@ void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
             ch &= 0xFF;
             if (sc == KEY_F11)
                 screenshot = true;
-            else if (sc == KEY_ESC)
-                exitRequested = true;
+            else if (sc == KEY_ESC) {
+                if (drag.mode != MapEditorDrag::None)
+                    drag.mode = MapEditorDrag::None; // cancel the in-progress drag, don't exit
+                else
+                    exitRequested = true;
+            }
             else if (sc == KEY_LEFT)
                 mapEditorState.panRoom.x = positiveModulo(mapEditorState.panRoom.x - 1, map.w);
             else if (sc == KEY_RIGHT)
@@ -965,7 +1282,287 @@ void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 --mapEditorState.zoom;
             else if (sc == KEY_PGDN && mapEditorState.zoom < 20)
                 ++mapEditorState.zoom;
+            else if (sc == KEY_1) { tool = MET_Select; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
+            else if (sc == KEY_2) { tool = MET_WallRect; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
+            else if (sc == KEY_3) { tool = MET_GroundRect; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
+            else if (sc == KEY_4) { tool = MET_Flag; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
+            else if (sc == KEY_5) { tool = MET_Spawn; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
+            else if (sc == KEY_TAB) {
+                if (tool == MET_Select && (selection.kind == MapEditorSelection::Flag || selection.kind == MapEditorSelection::Spawn)) {
+                    // Cycle the *selected* shape's team -- a committed edit (moves the entry between
+                    // team[]/wildFlags vectors, so index bookkeeping has to be updated alongside it).
+                    const MapEditorSelection oldSel = selection;
+                    EditorMap backup = mapEditorState.doc;
+                    const EditorMapArea a = *mapEditor_selectionArea(mapEditorState.doc, selection);
+                    if (selection.kind == MapEditorSelection::Flag) {
+                        if (selection.team == 2)
+                            mapEditorState.doc.wildFlags.erase(mapEditorState.doc.wildFlags.begin() + selection.index);
+                        else
+                            mapEditorState.doc.team[selection.team].flags.erase(mapEditorState.doc.team[selection.team].flags.begin() + selection.index);
+                        selection.team = (selection.team + 1) % 3;
+                        if (selection.team == 2) {
+                            mapEditorState.doc.wildFlags.push_back(a);
+                            selection.index = static_cast<int>(mapEditorState.doc.wildFlags.size()) - 1;
+                        }
+                        else {
+                            mapEditorState.doc.team[selection.team].flags.push_back(a);
+                            selection.index = static_cast<int>(mapEditorState.doc.team[selection.team].flags.size()) - 1;
+                        }
+                    }
+                    else { // Spawn -- no wild-spawn concept, just red/blue
+                        mapEditorState.doc.team[selection.team].spawns.erase(mapEditorState.doc.team[selection.team].spawns.begin() + selection.index);
+                        selection.team = (selection.team + 1) % 2;
+                        mapEditorState.doc.team[selection.team].spawns.push_back(a);
+                        selection.index = static_cast<int>(mapEditorState.doc.team[selection.team].spawns.size()) - 1;
+                    }
+                    if (!mapEditor_rebuildRenderMap()) {
+                        mapEditorState.doc = backup;
+                        selection = oldSel; // still valid: 'backup' restores exactly what oldSel pointed to
+                        statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                    }
+                    else {
+                        statusMessage.clear();
+                        graphics.update_minimap_background(mapEditorState.renderMap);
+                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                    }
+                }
+                else if (tool == MET_Flag)
+                    currentTeam = (currentTeam + 1) % 3;
+                else if (tool == MET_Spawn)
+                    currentTeam = (currentTeam + 1) % 2;
+            }
+            else if (sc == KEY_OPENBRACE || sc == KEY_CLOSEBRACE) {
+                const int delta = (sc == KEY_CLOSEBRACE) ? 1 : -1;
+                if (tool == MET_Select && (selection.kind == MapEditorSelection::Wall || selection.kind == MapEditorSelection::Ground)) {
+                    EditorMap backup = mapEditorState.doc;
+                    EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection);
+                    rw->texture = positiveModulo(rw->texture + delta, 8);
+                    if (!mapEditor_rebuildRenderMap()) {
+                        mapEditorState.doc = backup;
+                        statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                    }
+                    else {
+                        statusMessage.clear();
+                        graphics.update_minimap_background(mapEditorState.renderMap);
+                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                    }
+                }
+                else if (tool == MET_WallRect || tool == MET_GroundRect)
+                    currentTexture = positiveModulo(currentTexture + delta, 8);
+            }
+            else if (sc == KEY_DEL) {
+                if (tool == MET_Select && selection.kind != MapEditorSelection::None) {
+                    EditorMap backup = mapEditorState.doc;
+                    if (selection.kind == MapEditorSelection::Wall)
+                        mapEditorState.doc.room(selection.roomX, selection.roomY).eraseWall(selection.index);
+                    else if (selection.kind == MapEditorSelection::Ground)
+                        mapEditorState.doc.room(selection.roomX, selection.roomY).eraseGround(selection.index);
+                    else if (selection.kind == MapEditorSelection::Flag) {
+                        if (selection.team == 2)
+                            mapEditorState.doc.wildFlags.erase(mapEditorState.doc.wildFlags.begin() + selection.index);
+                        else
+                            mapEditorState.doc.team[selection.team].flags.erase(mapEditorState.doc.team[selection.team].flags.begin() + selection.index);
+                    }
+                    else // Spawn
+                        mapEditorState.doc.team[selection.team].spawns.erase(mapEditorState.doc.team[selection.team].spawns.begin() + selection.index);
+                    selection = MapEditorSelection(); // nothing left selected
+                    // Deleting content can only relax parse_file's overlap/free-space checks, never
+                    // break them -- this can't actually fail, but goes through the same commit
+                    // protocol as every other edit for one uniform code path.
+                    if (!mapEditor_rebuildRenderMap()) {
+                        mapEditorState.doc = backup;
+                        statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                    }
+                    else {
+                        statusMessage.clear();
+                        graphics.update_minimap_background(mapEditorState.renderMap);
+                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                    }
+                }
+            }
+            else if (sc == KEY_S && controlPressed)
+                statusMessage = mapEditor_save() ? _("Saved.") : _("Save failed.");
         }
+
+        // Mouse press/drag/release -- see the plan file's "drag/mouse state machine" section. Edge
+        // detection is a plain previous-frame mouse_b diff (not RegisterMouseClicks, which fires on
+        // any activity while a button is held, not a clean single down-edge).
+        const int curMouseB = mouse_b;
+        const bool mousePressed = (curMouseB & 1) && !(prevMouseB & 1);
+        const bool mouseReleased = !(curMouseB & 1) && (prevMouseB & 1);
+
+        if (mousePressed && drag.mode == MapEditorDrag::None) {
+            const WorldCoords wc = graphics.screenToWorld(mouse_x, mouse_y);
+            if (!wc.unknown()) {
+                if (tool == MET_WallRect || tool == MET_GroundRect) {
+                    drag.mode = MapEditorDrag::NewRect;
+                    drag.room = wc.room;
+                    drag.startX = drag.curX = wc.x;
+                    drag.startY = drag.curY = wc.y;
+                }
+                else if (tool == MET_Flag || tool == MET_Spawn) {
+                    drag.mode = MapEditorDrag::NewPoint;
+                    drag.room = wc.room;
+                    drag.startX = drag.curX = wc.x;
+                    drag.startY = drag.curY = wc.y;
+                }
+                else { // MET_Select
+                    int corner = -1;
+                    if (selection.kind != MapEditorSelection::None && selection.roomX == wc.room.x && selection.roomY == wc.room.y) {
+                        if (EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection)) {
+                            const MapEditorOverlayRect selRect(wc.room.x, wc.room.y, rw->x1, rw->y1, rw->x2, rw->y2);
+                            corner = graphics.mapEditorHitTestCorner(mouse_x, mouse_y, selRect);
+                        }
+                    }
+                    if (corner >= 0) {
+                        drag.mode = MapEditorDrag::Resize;
+                        drag.room = wc.room;
+                        drag.corner = corner;
+                        drag.startX = drag.curX = wc.x;
+                        drag.startY = drag.curY = wc.y;
+                    }
+                    else {
+                        MapEditorHitCandidates cand;
+                        mapEditor_buildHitCandidates(mapEditorState.doc, wc.room, cand);
+                        const MapEditorHitResult hit = graphics.mapEditorHitTest(mouse_x, mouse_y, cand.rects, cand.points);
+                        if (hit.kind == MapEditorHitResult::Rect) {
+                            selection.kind = cand.rectIsGround[hit.index] ? MapEditorSelection::Ground : MapEditorSelection::Wall;
+                            selection.roomX = wc.room.x;
+                            selection.roomY = wc.room.y;
+                            selection.index = cand.rectOrigIndex[hit.index];
+                            selection.team = 0;
+                            drag.mode = MapEditorDrag::Move;
+                            drag.room = wc.room;
+                            drag.startX = drag.curX = wc.x;
+                            drag.startY = drag.curY = wc.y;
+                        }
+                        else if (hit.kind == MapEditorHitResult::Point) {
+                            selection.kind = cand.pointIsSpawn[hit.index] ? MapEditorSelection::Spawn : MapEditorSelection::Flag;
+                            selection.roomX = wc.room.x;
+                            selection.roomY = wc.room.y;
+                            selection.index = cand.pointOrigIndex[hit.index];
+                            selection.team = cand.pointTeam[hit.index];
+                            drag.mode = MapEditorDrag::Move;
+                            drag.room = wc.room;
+                            drag.startX = drag.curX = wc.x;
+                            drag.startY = drag.curY = wc.y;
+                        }
+                        else
+                            selection = MapEditorSelection(); // clicked empty space -- deselect
+                    }
+                }
+            }
+        }
+        else if (drag.mode != MapEditorDrag::None) {
+            const WorldCoords wc = graphics.screenToWorldClampedToRoom(mouse_x, mouse_y, drag.room);
+            if (!wc.unknown()) {
+                drag.curX = wc.x;
+                drag.curY = wc.y;
+            }
+            if (mouseReleased) {
+                const double dx = drag.curX - drag.startX, dy = drag.curY - drag.startY;
+                const double absDx = (dx < 0) ? -dx : dx, absDy = (dy < 0) ? -dy : dy;
+                if (drag.mode == MapEditorDrag::NewRect) {
+                    const double x1 = min(drag.startX, drag.curX), x2 = max(drag.startX, drag.curX);
+                    const double y1 = min(drag.startY, drag.curY), y2 = max(drag.startY, drag.curY);
+                    if (x2 - x1 >= 1 && y2 - y1 >= 1) { // discard a degenerate (near-zero-area) drag silently
+                        EditorMap backup = mapEditorState.doc;
+                        EditorRectWall* w = new EditorRectWall(x1, y1, x2, y2, currentTexture, 255);
+                        EditorRoom& r = mapEditorState.doc.room(drag.room.x, drag.room.y);
+                        if (tool == MET_WallRect)
+                            r.addWall(w);
+                        else
+                            r.addGround(w);
+                        if (!mapEditor_rebuildRenderMap()) {
+                            mapEditorState.doc = backup;
+                            statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                        }
+                        else {
+                            statusMessage.clear();
+                            graphics.update_minimap_background(mapEditorState.renderMap);
+                            graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                        }
+                    }
+                }
+                else if (drag.mode == MapEditorDrag::NewPoint) {
+                    // No degenerate-drag discard here -- a plain click (no movement) is the normal
+                    // way to place a flag/spawn point.
+                    EditorMap backup = mapEditorState.doc;
+                    EditorMapArea a;
+                    a.roomX = drag.room.x;
+                    a.roomY = drag.room.y;
+                    a.x1 = a.x2 = drag.curX;
+                    a.y1 = a.y2 = drag.curY;
+                    a.isPoint = true;
+                    if (tool == MET_Flag) {
+                        if (currentTeam == 2)
+                            mapEditorState.doc.wildFlags.push_back(a);
+                        else
+                            mapEditorState.doc.team[currentTeam].flags.push_back(a);
+                    }
+                    else
+                        mapEditorState.doc.team[currentTeam].spawns.push_back(a);
+                    if (!mapEditor_rebuildRenderMap()) {
+                        mapEditorState.doc = backup;
+                        statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                    }
+                    else {
+                        statusMessage.clear();
+                        graphics.update_minimap_background(mapEditorState.renderMap);
+                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                    }
+                }
+                else if (drag.mode == MapEditorDrag::Move) {
+                    if (absDx >= 0.5 || absDy >= 0.5) { // discard a degenerate (effectively-no-op) move silently
+                        EditorMap backup = mapEditorState.doc;
+                        if (selection.kind == MapEditorSelection::Wall || selection.kind == MapEditorSelection::Ground) {
+                            EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection);
+                            rw->x1 += dx; rw->x2 += dx; rw->y1 += dy; rw->y2 += dy;
+                        }
+                        else {
+                            EditorMapArea* a = mapEditor_selectionArea(mapEditorState.doc, selection);
+                            a->x1 += dx; a->x2 += dx; a->y1 += dy; a->y2 += dy;
+                        }
+                        if (!mapEditor_rebuildRenderMap()) {
+                            mapEditorState.doc = backup;
+                            statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                        }
+                        else {
+                            statusMessage.clear();
+                            graphics.update_minimap_background(mapEditorState.renderMap);
+                            graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                        }
+                    }
+                }
+                else if (drag.mode == MapEditorDrag::Resize) {
+                    EditorMap backup = mapEditorState.doc;
+                    EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection);
+                    switch (drag.corner) {
+                    case 0: rw->x1 = drag.curX; rw->y1 = drag.curY; break;
+                    case 1: rw->x2 = drag.curX; rw->y1 = drag.curY; break;
+                    case 2: rw->x1 = drag.curX; rw->y2 = drag.curY; break;
+                    default: rw->x2 = drag.curX; rw->y2 = drag.curY; break;
+                    }
+                    // EditorRectWall doesn't auto-normalize x1<=x2/y1<=y2 the way the engine's own
+                    // RectWall does -- a resize dragged past its anchor corner needs re-sorting here,
+                    // or the next corner-hit-test would get confused about which field is which
+                    // visual corner.
+                    if (rw->x1 > rw->x2) { const double t = rw->x1; rw->x1 = rw->x2; rw->x2 = t; }
+                    if (rw->y1 > rw->y2) { const double t = rw->y1; rw->y1 = rw->y2; rw->y2 = t; }
+                    if (rw->x2 - rw->x1 < 1 || rw->y2 - rw->y1 < 1 || !mapEditor_rebuildRenderMap()) {
+                        mapEditorState.doc = backup;
+                        statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                    }
+                    else {
+                        statusMessage.clear();
+                        graphics.update_minimap_background(mapEditorState.renderMap);
+                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                    }
+                }
+                drag.mode = MapEditorDrag::None;
+            }
+        }
+        prevMouseB = curMouseB;
 
         sched_yield(); // give other threads a chance, matching language_selection_start() above
 
@@ -984,6 +1581,82 @@ void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
             coordText << "room " << underMouse.room.x << ',' << underMouse.room.y
                       << "  (" << iround(underMouse.x) << ", " << iround(underMouse.y) << ')';
             graphics.draw_mapeditor_overlay(mouse_x, mouse_y, coordText.str());
+        }
+
+        // Editing overlay: status line (tool/texture/team/save-or-error) + live drag preview +
+        // persistent selection outline. See Graphics::draw_mapeditor_edit_overlay's own comment --
+        // an additive sibling of draw_mapeditor_overlay above, not a replacement for it.
+        {
+            string toolName;
+            switch (tool) {
+            case MET_Select:     toolName = _("Select"); break;
+            case MET_WallRect:   toolName = _("Wall");   break;
+            case MET_GroundRect: toolName = _("Ground"); break;
+            case MET_Flag:       toolName = _("Flag");   break;
+            default:             toolName = _("Spawn");  break;
+            }
+            ostringstream status;
+            status << _("Tool: $1", toolName);
+            if (tool == MET_WallRect || tool == MET_GroundRect)
+                status << "  " << _("Texture: $1", itoa(currentTexture));
+            if (tool == MET_Flag || tool == MET_Spawn) {
+                const string teamName = (currentTeam == 0) ? _("Red") : (currentTeam == 1) ? _("Blue") : _("Wild");
+                status << "  " << _("Team: $1", teamName);
+            }
+            if (!statusMessage.empty())
+                status << "  " << statusMessage;
+
+            MapEditorOverlayRect selRect, previewRect;
+            MapEditorOverlayPoint selPoint, previewPoint;
+            bool haveSelRect = false, haveSelPoint = false, havePreviewRect = false, havePreviewPoint = false;
+
+            if (selection.kind == MapEditorSelection::Wall || selection.kind == MapEditorSelection::Ground) {
+                if (EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection)) {
+                    selRect = MapEditorOverlayRect(selection.roomX, selection.roomY, rw->x1, rw->y1, rw->x2, rw->y2);
+                    haveSelRect = true;
+                }
+            }
+            else if (selection.kind == MapEditorSelection::Flag || selection.kind == MapEditorSelection::Spawn) {
+                if (EditorMapArea* a = mapEditor_selectionArea(mapEditorState.doc, selection)) {
+                    selPoint = MapEditorOverlayPoint(selection.roomX, selection.roomY, a->x1, a->y1);
+                    haveSelPoint = true;
+                }
+            }
+
+            if (drag.mode == MapEditorDrag::NewRect) {
+                previewRect = MapEditorOverlayRect(drag.room.x, drag.room.y, min(drag.startX, drag.curX), min(drag.startY, drag.curY),
+                                                    max(drag.startX, drag.curX), max(drag.startY, drag.curY));
+                havePreviewRect = true;
+            }
+            else if (drag.mode == MapEditorDrag::NewPoint) {
+                previewPoint = MapEditorOverlayPoint(drag.room.x, drag.room.y, drag.curX, drag.curY);
+                havePreviewPoint = true;
+            }
+            else if (drag.mode == MapEditorDrag::Move && haveSelRect) {
+                const double dx = drag.curX - drag.startX, dy = drag.curY - drag.startY;
+                previewRect = MapEditorOverlayRect(drag.room.x, drag.room.y, selRect.x1 + dx, selRect.y1 + dy, selRect.x2 + dx, selRect.y2 + dy);
+                havePreviewRect = true;
+            }
+            else if (drag.mode == MapEditorDrag::Move && haveSelPoint) {
+                const double dx = drag.curX - drag.startX, dy = drag.curY - drag.startY;
+                previewPoint = MapEditorOverlayPoint(drag.room.x, drag.room.y, selPoint.x + dx, selPoint.y + dy);
+                havePreviewPoint = true;
+            }
+            else if (drag.mode == MapEditorDrag::Resize && haveSelRect) {
+                double x1 = selRect.x1, y1 = selRect.y1, x2 = selRect.x2, y2 = selRect.y2;
+                switch (drag.corner) {
+                case 0: x1 = drag.curX; y1 = drag.curY; break;
+                case 1: x2 = drag.curX; y1 = drag.curY; break;
+                case 2: x1 = drag.curX; y2 = drag.curY; break;
+                default: x2 = drag.curX; y2 = drag.curY; break;
+                }
+                previewRect = MapEditorOverlayRect(drag.room.x, drag.room.y, min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2));
+                havePreviewRect = true;
+            }
+
+            graphics.draw_mapeditor_edit_overlay(status.str(),
+                havePreviewRect ? &previewRect : NULL, havePreviewPoint ? &previewPoint : NULL,
+                haveSelRect ? &selRect : NULL, haveSelPoint ? &selPoint : NULL);
         }
 
         graphics.endDraw();

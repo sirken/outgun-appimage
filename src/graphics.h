@@ -108,6 +108,34 @@ struct MapEditorPickerStats {
     MapEditorPickerStats() throw () : width(0), height(0), flagsRed(0), flagsBlue(0), flagsWild(0), spawns(0) { }
 };
 
+// Map editor Phase 3 (rect/point editing, see TODO.md and the plan file): room-local geometry for
+// one shape, passed to Graphics for screen-space projection, hit-testing, and overlay drawing --
+// Graphics doesn't know about EditorMap/EditorRoom's own types, only this plain geometry, keeping
+// the document model and the renderer decoupled (guiclient.cpp extracts these from the document).
+struct MapEditorOverlayRect {
+    int roomX, roomY;
+    double x1, y1, x2, y2;
+    MapEditorOverlayRect() throw () : roomX(0), roomY(0), x1(0), y1(0), x2(0), y2(0) { }
+    MapEditorOverlayRect(int roomX_, int roomY_, double x1_, double y1_, double x2_, double y2_) throw ()
+        : roomX(roomX_), roomY(roomY_), x1(x1_), y1(y1_), x2(x2_), y2(y2_) { }
+};
+struct MapEditorOverlayPoint {
+    int roomX, roomY;
+    double x, y;
+    MapEditorOverlayPoint() throw () : roomX(0), roomY(0), x(0), y(0) { }
+    MapEditorOverlayPoint(int roomX_, int roomY_, double x_, double y_) throw () : roomX(roomX_), roomY(roomY_), x(x_), y(y_) { }
+};
+
+// Result of Graphics::mapEditorHitTest -- which candidate (if any) a screen click landed on. Rects
+// are checked before points (the caller pre-orders each list -- walls before ground within rects,
+// flags before spawns within points -- so "rects checked first" alone gives the full documented
+// walls -> ground -> flags -> spawns tie-break).
+struct MapEditorHitResult {
+    enum Kind { None, Rect, Point } kind;
+    int index; // index into whichever of the caller's rects/points lists matched; -1 if kind == None
+    MapEditorHitResult() throw () : kind(None), index(-1) { }
+};
+
 class Graphics {
 public:
     static const int
@@ -304,6 +332,42 @@ public:
     // the caller, matching how every other bit of drawbuf access lives inside this class.
     void draw_mapeditor_overlay(int screenX, int screenY, const std::string& coordText) throw ();
 
+    // Map editor Phase 3 (see TODO.md and the plan file): editing additions to the Phase 2 viewer.
+    // These stay additive siblings of draw_mapeditor_overlay above -- its signature/behavior is
+    // unchanged.
+
+    // Like screenToWorld, but the result is guaranteed to land inside 'room' (clamping the pixel to
+    // that room's own on-screen rectangle first) instead of returning "unknown" or resolving into a
+    // neighboring/wrapped room near an edge. Used while a mouse drag is confined to the room it
+    // started in -- see mapEditor_start()'s drag state machine. If 'room' isn't on screen at all
+    // right now, returns an "unknown" WorldCoords (shouldn't normally happen mid-drag).
+    WorldCoords screenToWorldClampedToRoom(int screenX, int screenY, RoomCoords room) const throw () { return roomLayout.screenToWorldClampedToRoom(screenX, screenY, room); }
+
+    // Select-tool hit-testing: which candidate (if any) a screen click landed on. 'rects' and
+    // 'points' must already be caller-ordered by priority (walls before ground; flags before
+    // spawns) -- rects are checked first, in order, then points, in order, giving the documented
+    // walls -> ground -> flags -> spawns tie-break with no extra bookkeeping here.
+    MapEditorHitResult mapEditorHitTest(int screenX, int screenY, const std::vector<MapEditorOverlayRect>& rects, const std::vector<MapEditorOverlayPoint>& points) const throw ();
+
+    // Whether a screen click landed near one of 'rect's 4 corners (used only for the already-
+    // selected shape, to decide whether a press starts a resize-corner drag instead of a move).
+    // Returns -1 for no corner, else 0=(x1,y1) 1=(x2,y1) 2=(x1,y2) 3=(x2,y2).
+    int mapEditorHitTestCorner(int screenX, int screenY, const MapEditorOverlayRect& rect) const throw ();
+
+    // Draws the editing overlay for one frame: a status line (tool/texture/team/save-or-error
+    // message, pre-formatted by the caller -- same "Graphics draws, guiclient formats" convention
+    // as draw_mapeditor_overlay above), the rubber-band preview of an in-progress drag (at most one
+    // of previewRect/previewPoint is non-NULL at a time), and an outline around the current
+    // selection, if any (at most one of selectedRect/selectedPoint non-NULL). Any pointer may be
+    // NULL to mean "nothing to draw there".
+    void draw_mapeditor_edit_overlay(const std::string& statusLine,
+                                      const MapEditorOverlayRect* previewRect, const MapEditorOverlayPoint* previewPoint,
+                                      const MapEditorOverlayRect* selectedRect, const MapEditorOverlayPoint* selectedPoint) throw ();
+
+    // Draws the "New map" dialog (width/height/title prompt shown before mapEditor_start() opens a
+    // blank map -- see GuiClient::mapEditor_newMapDialog). focusField: 0=width, 1=height, 2=title.
+    void draw_mapeditor_newmap_dialog(int width, int height, const std::string& title, int focusField, bool showTitleRequiredError) throw ();
+
 private:
     void unload_bitmaps() throw ();
 
@@ -339,6 +403,14 @@ private:
 
     void draw_bar(int x, const std::string& caption, int value, int c100, int c200, int c300) throw ();
     void draw_powerup_time(int line, const std::string& caption, double val, int c) throw ();
+
+    // Shared by mapEditorHitTest/mapEditorHitTestCorner/draw_mapeditor_edit_overlay: projects a
+    // room-local point to its primary (first) on-screen pixel, or returns false if that room isn't
+    // on screen at all right now. Only the primary wraparound-repeat instance is considered -- an
+    // accepted simplification for the rare case of being zoomed out far enough to see the same room
+    // more than once (see the plan file).
+    bool projectMapEditorPoint(int roomX, int roomY, double x, double y, int& outX, int& outY) const throw ();
+    void drawMapEditorRectOutline(const MapEditorOverlayRect& r, int col) throw ();
 
     void draw_player_statistics(const FONT* stfont, const ClientPlayer& player, int x, int y, int page, int time) throw ();
 
@@ -453,6 +525,7 @@ private:
         bool on_screen(int rx, int ry) const throw (); // returns true if some part of the room may be on screen
 
         WorldCoords screenToWorld(int screenX, int screenY) const throw (); // inverse of scale_x/scale_y; see Graphics::screenToWorld
+        WorldCoords screenToWorldClampedToRoom(int screenX, int screenY, RoomCoords room) const throw (); // see Graphics::screenToWorldClampedToRoom
     };
     RoomLayoutManager roomLayout;
 

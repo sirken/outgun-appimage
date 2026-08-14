@@ -28,6 +28,7 @@
 #include "world.h"
 
 using std::ostream;
+using std::string;
 using std::vector;
 
 // -- EditorWall subtypes: text export --
@@ -164,6 +165,20 @@ void EditorMap::importFrom(const Map& map) throw () {
     wildFlags.clear();
     for (vector<WorldCoords>::const_iterator i = map.wild_flags.begin(); i != map.wild_flags.end(); ++i)
         wildFlags.push_back(pointArea(*i));
+}
+
+void EditorMap::initBlank(int width_, int height_, const string& title_, const string& author_) throw () {
+    title = title_;
+    author = author_;
+    width = width_;
+    height = height_;
+    rooms.assign(width, vector<EditorRoom>(height));
+    for (int t = 0; t < 2; ++t) {
+        team[t].flags.clear();
+        team[t].spawns.clear();
+        team[t].respawnAreas.clear();
+    }
+    wildFlags.clear();
 }
 
 // -- EditorMap::exportText --
