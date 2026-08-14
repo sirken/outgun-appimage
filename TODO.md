@@ -1,8 +1,92 @@
 
 # Bugs
 
+- In the map editor selection screen, scrolling through the maps, a preview is displayed in the right column. Moving to a maps that is smaller than the previous one doesn't redraw the entire map preview area, so part of the previous larger map still shows in the area outside the new smaller map.
+
+- In the map editor main screen, there are a redraw issues on the top and right sides outside the main map. Hovering the mouse over these areas leaves ghost mouse cursors artifacts sometimes. Hovering over the main map near the right side, the mouse stats text such as "room 1,0  (28x262)" leaves artifacts and ghost text on the minimap and the area below it.
+
+
+## Map selection tweaks
+
+- In the map editor selection screen, show the map name and details below the map preview. Make the text label green and the value white. Map name doesn't need a label.
+
 
 # Features
+
+## Map editor tweaks
+Some of these may already exist in later phases, but these items can be addressed in whichever phase they make the most sense.
+
+- I changed my mind on the wraparound visual. Do not use wraparound to show the SAME rows and columns at the same time on both ends. It's too distracting and confusing. Only show each room of the map once.
+- DO keep the separate map movement wrapping feature, so when we move up/down/left/right the map movement continues to wraps around.
+
+- Red, white and yellow grid lines are too bold and visible. Change their alpha so they are transparent and less visible at 40% opacity.
+
+- Keep the map "boundary" outline color at 80% opacity so we can see where the map edges are all all times. This will be helpful when we move the map around and the map edges are in the center of the screen somewhere. 
+ 
+- The arrow keys can already move the map in any direction. For the mouse, add new arrow buttons to the top, bottom, left, right and corners outside the map boundary that allow us to move the map one room in that direction. These arrow buttons should span the entire width or height of the map size. The corner buttons will move the map one room in both directions. The buttons should be 50% opacity when inactive, and highlight to 100% on mouseover.
+
+- Add the ability to click on the minimap and move to that area of the map
+
+- In the minimap, highlight which area of the map we are zoomed to.
+
+- Add a "Zoom width" and "Zoom height" values which determine how many rooms are shown on the screen at a time. If the user wants to see a 3x2 layout, or a 2x3 layout, or a 5x1 layout, etc, they can change these values to whatever they want (limited by map size).
+- Add "Zoom in" and "Zoom out" settings which work in tandem with the Zoom width/height. These Zoom settings either halve or double the Zoom width/height setting to determine how many map rooms are shown on the screen at a time. To handle odd numbers, we would halve to the ceiling. For example, if the Zoom width/height is 5/4, zooming in would reduce to 3/2 since 5 is odd and 2.5 would ceiling to 3. Once one of the height/width values reaches 1, that value never goes any lower. Continuing to zoom in will reduce both values until they reach 1. So 5/4 would zoom in to 3/2, which would zoom in 2/1, which would zoom in to 1/1 and then we can't zoom any further. Zooming out simply doubles each value until we hit the map size limits and can't zoom any further.
+-  The Zoom in/out and Zoom width/height settings would work in tandem and update each other as one or the other is changed.
+
+- We need menus and tool buttons/boxes/inputs across the top
+  - Editor menu item, with the following items:
+    - Settings
+    - Close
+
+  - Map menu item, with the following items:
+    - Settings: edit map name, author, any other editable details. Show map path/location in the system. Include an "Open map location" button which opens system file manager
+    - Validate: run validation on the map structure, show validation output, errors, etc
+    - Save
+    - Save as
+    - Close
+
+  - Tool menu item, with all tools listed underneath it, including their keyboard shortcuts
+
+  - Zoom in/out buttons
+  - Zoom width/height input boxes
+  - Select tool
+  - Spawn point tool
+  - Flag tool
+  - Wall tool
+  - Circle tool
+  - Texture drop-down selector
+  - Other tools I'm forgetting
+  - At the end a ? button which opens a help dialog with usage instructions, keyboard shortcuts, tool descriptions, anything that might go into a help section
+
+  - Ideally, we can have all menu items in the top first row
+  - Tool buttons/boxes/inputs will be underneath the menus in row 2
+  - We also need a designated "Tool settings" area that shows additional settings related to each tool that is selected. Put this settings area in row 3.
+
+## Settings dialog items
+
+- Add a "Snap to grid" option, on by default
+
+- Add a "Map boundary grid" line setting (currently red), with 3 options:
+  - 1: on/off toggle
+  - 2: opacity setting
+  - 3: color selector
+
+- Add a "General grid" line setting (currently white), with 3 options:
+  - 1: on/off toggle
+  - 2: opacity setting
+  - 3: color selector
+
+- Add a "Center grid" line setting (currently yellow), with 3 options:
+  - 1: on/off toggle
+  - 2: opacity setting
+  - 3: color selector
+
+- Add a "Room boundary grid" line setting (currently red), with 3 options:
+  - 1: on/off toggle
+  - 2: opacity setting
+  - 3: color selector
+
+
 
 ## Add an in-game map editor to create new and edit existing maps
 - New main menu item: 7. Map editor
@@ -44,6 +128,63 @@
 
 
 # Done
+
+- ~~Map editor: Escape now returns to the map picker, with an
+  unsaved-changes prompt~~: previously, Escape in the editor
+  (`GuiClient::mapEditor_start()`) always unwound straight back to the main
+  menu, silently discarding any in-progress edit. Now it goes back to the
+  map picker instead (the picker's own Escape still leaves to the main
+  menu, unchanged), and if `MapEditorState::dirty` is set (new field, set
+  `true` inside `mapEditor_rebuildRenderMap()` on every successful
+  committed edit -- the single choke point all ~7 edit types already go
+  through -- and reset `false` on save success and on opening/creating a
+  map), a new confirm dialog (`GuiClient::mapEditor_confirmDiscardDialog`/
+  `Graphics::draw_mapeditor_confirm_discard_dialog`, modeled on the
+  existing "New map" dialog's bespoke sub-loop) asks Save/Discard/Cancel
+  first. `mapEditor_pickerScreen()` changed from `void` to `bool` (true =
+  a map was opened, caller shows the viewer; false = escaped to the main
+  menu or quitting), and `MCF_openMapEditorItem()` became an explicit loop
+  alternating between the two instead of the old one-shot "call whichever
+  one" logic -- an explicit loop rather than having the two functions
+  tail-call each other, to avoid unbounded call-stack growth across many
+  picker<->viewer round-trips in one long session. Discarding also resets
+  `MapEditorState::everOpened = false`: without this, the existing "resume
+  the viewer directly" shortcut on the next main-menu "Map editor" click
+  would silently resume the exact discarded in-memory document instead of
+  showing the picker, and spuriously re-prompt "unsaved changes" even
+  though nothing new had been edited since.
+
+  Two real bugs found and fixed while testing this (both pre-existing,
+  newly exposed because this is the first time the viewer's own rendering
+  and a subsequent fresh screen's rendering could ever share the same
+  process run back-to-back): (1) `draw_mapeditor_picker()` (and, added
+  defensively, the two other bespoke dialogs) could inherit a leftover
+  Allegro drawing mode/clip rect from the viewer's last frame, corrupting
+  the picker's first several frames after being re-entered -- fixed with a
+  `solid_mode()`/full `set_clip_rect()` reset at the top of each, matching
+  what `endPlayfieldDraw()` already resets elsewhere. (2)
+  `update_minimap_background()`'s minimap-sizing math has a "+1 for
+  safety" rounding step that could push `minimap_h` a pixel past its
+  container for some map aspect ratios, which crashed an `nAssert` in
+  `BackgroundMasker::addMask` (`graphics.cpp`) once enough picker<->viewer
+  round-trips happened to hit it -- fixed by clamping both `minimap_w` and
+  `minimap_h` to their container bounds after computing them, in both
+  branches.
+
+  Verified via synthetic X11 keyboard input (no mouse needed for the
+  Escape/dialog flow itself, though the wall-drawing steps used the mouse
+  helpers from Phase 3's own testing): opening a map with no edits and
+  pressing Escape goes straight to the picker with no dialog; editing then
+  pressing Escape shows the dialog; Cancel stays in the editor with the
+  edit intact; Discard returns to the picker and the edit is confirmed
+  absent both immediately and after a full process restart + reopen from
+  the main menu (the `everOpened` regression case); Save returns to the
+  picker and the edit persists to disk; the picker's own Escape still
+  reaches the main menu unchanged. Stress-tested 35+ picker<->viewer
+  round-trips (1600+ zoom changes) across both a square map and an extreme
+  6:1 aspect-ratio map with no crash, confirming the minimap-clamp fix. A
+  full local-server play session afterward confirmed normal gameplay is
+  unaffected.
 
 - ~~Map editor Phase 3: "New map" button + core mutation (rects,
   spawns/flags, save, validator)~~: turns the Phase 2 read-only viewer into

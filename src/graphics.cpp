@@ -1042,10 +1042,20 @@ void Graphics::update_minimap_background(BITMAP* buffer, const Map& map, bool sa
     if (map.w * 4 * minimap_place_h > map.h * 3 * minimap_place_w) {
         minimap_w = minimap_place_w;
         minimap_h = static_cast<int>(static_cast<double>(minimap_w * map.h * 3) / (map.w * 4.)) + 1;    // add 1 because w should be the relatively smaller one for safety (because it's used in determining 'scale' below)
+        // The "+1 for safety" above can push minimap_h a pixel past minimap_place_h for some map
+        // aspect ratios, which (via minimap_y below) can in turn push minimap_y + minimap_h - 1 past
+        // SCREEN_H -- clamp back to the container so the minimap mask stays within it (found via a
+        // real crash: nAssert in BackgroundMasker::addMask, graphics.cpp).
+        if (minimap_h > minimap_place_h)
+            minimap_h = minimap_place_h;
     }
     else {
         minimap_h = minimap_place_h;
         minimap_w = static_cast<int>(static_cast<double>(minimap_h * map.w * 4) / (map.h * 3.));    // truncate to make sure w is the relatively smaller one
+        // Defensive, matching the other branch -- this truncates rather than adding a safety pixel,
+        // so it shouldn't overflow in practice, but there's no reason to leave it unguarded either.
+        if (minimap_w > minimap_place_w)
+            minimap_w = minimap_place_w;
     }
 
     minimap_x = minimap_place_x + (minimap_place_w - minimap_w) / 2;
@@ -2298,6 +2308,10 @@ void Graphics::draw_mapeditor_edit_overlay(const string& statusLine,
 // rather than introducing the Menu/Textfield system into a bespoke full-screen loop for the first
 // time.
 void Graphics::draw_mapeditor_newmap_dialog(int width, int height, const string& title, int focusField, bool showTitleRequiredError) throw () {
+    // Defensive reset -- see the identical comment in draw_mapeditor_picker (this screen can be
+    // reached from either the picker or, in a later phase, potentially other contexts too).
+    solid_mode();
+    set_clip_rect(drawbuf, 0, 0, drawbuf->w - 1, drawbuf->h - 1);
     rectfill(drawbuf, 0, 0, SCREEN_W - 1, SCREEN_H - 1, colour[Colour::screen_background]);
 
     const int lineH = text_height(font) + 4;
@@ -2335,6 +2349,46 @@ void Graphics::draw_mapeditor_newmap_dialog(int width, int height, const string&
     if (showTitleRequiredError) {
         y += 4;
         textout_ex(drawbuf, font, _("Title required").c_str(), labelX, y, colour[Colour::message_warning], -1);
+    }
+}
+
+// "Unsaved changes" prompt (GuiClient::mapEditor_confirmDiscardDialog): a simple centered box with
+// three static option lines -- no navigable field, just direct S/D/Esc hotkeys, so unlike
+// draw_mapeditor_newmap_dialog above there's no focus-row highlight to draw.
+void Graphics::draw_mapeditor_confirm_discard_dialog(bool showSaveFailedError) throw () {
+    // Defensive reset -- this dialog is drawn on the frame right after the viewer's own rendering
+    // (see the plan file and the identical fix in draw_mapeditor_picker, which is where this issue
+    // was actually observed and root-caused).
+    solid_mode();
+    set_clip_rect(drawbuf, 0, 0, drawbuf->w - 1, drawbuf->h - 1);
+    rectfill(drawbuf, 0, 0, SCREEN_W - 1, SCREEN_H - 1, colour[Colour::screen_background]);
+
+    const int lineH = text_height(font) + 4;
+    const int boxW = max(280, text_length(font, _("D - Discard changes and go back")) + 32);
+    const int boxH = lineH * 5 + (showSaveFailedError ? lineH : 0) + 20;
+    const int x1 = (SCREEN_W - boxW) / 2;
+    const int y1 = (SCREEN_H - boxH) / 2;
+    const int x2 = x1 + boxW;
+    const int y2 = y1 + boxH;
+
+    rectfill(drawbuf, x1, y1, x2, y2, colour[Colour::menu_background]);
+    rect(drawbuf, x1, y1, x2, y2, colour[Colour::menu_border_highlight]);
+
+    textout_centre_ex(drawbuf, font, _("Unsaved changes").c_str(), (x1 + x2) / 2, y1 + 8, colour[Colour::menu_caption], -1);
+
+    int y = y1 + 8 + 2 * lineH;
+    const int labelX = x1 + 16;
+
+    textout_ex(drawbuf, font, _("S - Save and go back").c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+    textout_ex(drawbuf, font, _("D - Discard changes and go back").c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+    textout_ex(drawbuf, font, _("Esc - Cancel").c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+
+    if (showSaveFailedError) {
+        y += 4;
+        textout_ex(drawbuf, font, _("Save failed").c_str(), labelX, y, colour[Colour::message_warning], -1);
     }
 }
 
@@ -2934,6 +2988,12 @@ void Graphics::draw_mapeditor_picker(const string& filterText, const vector<MapE
                                       int scrollOffset, const MapEditorPickerStats& stats, BITMAP* preview) throw () {
     const MapEditorPickerLayout l = computeMapEditorPickerLayout(font);
 
+    // Defensive reset: this screen can now be re-entered right after the viewer (mapEditor_start())
+    // has been drawing to this same drawbuf -- see the plan file. solid_mode()/full clip rect match
+    // what endPlayfieldDraw() already resets elsewhere in this file, in case anything upstream left
+    // either narrowed.
+    solid_mode();
+    set_clip_rect(drawbuf, 0, 0, drawbuf->w - 1, drawbuf->h - 1);
     rectfill(drawbuf, 0, 0, SCREEN_W - 1, SCREEN_H - 1, colour[Colour::screen_background]);
 
     // Search box: label + typed text + a fixed trailing cursor mark (this screen has no

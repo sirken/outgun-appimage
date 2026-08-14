@@ -790,6 +790,7 @@ bool GuiClient::mapEditor_rebuildRenderMap() throw () {
     if (!newMap.parse_file(silentLog, reimport))
         return false; // renderMap left untouched -- last-known-good state survives a rejected edit
     mapEditorState.renderMap = newMap;
+    mapEditorState.dirty = true;
     return true;
 }
 
@@ -937,7 +938,7 @@ bool GuiClient::mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int&
 // preview + stats panel for whichever map is highlighted. Bespoke self-contained loop, same model
 // as mapEditor_start()/language_selection_start(): the Menu/Component system has no concept of two
 // columns or a live side-panel tied to list selection.
-void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
+bool GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
     log("mapEditor_pickerScreen()");
 
     vector<MapEditorPickerEntry> entries;
@@ -997,6 +998,7 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                     mapEditorState.panRoom = RoomCoords(0, 0);
                     mapEditorState.zoom = max(entry.map.w, entry.map.h);   // whole map visible at first
                     mapEditorState.everOpened = true;
+                    mapEditorState.dirty = false; // freshly opened -- nothing unsaved yet
                     // Populates the *viewer's* in-game-sized minimap (separate bitmap from this
                     // screen's own preview) -- see the identical comment this had in Phase 2's
                     // MCF_openMap, now inlined here since that function no longer exists.
@@ -1004,14 +1006,13 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                     graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
                     destroy_bitmap(preview);
                     show_mouse(NULL);
-                    mapEditor_start(quitFlag);
-                    // Selecting a map ends this screen -- control doesn't return here after the
-                    // viewer's own Escape, it unwinds straight back to MCF_openMapEditorItem(),
-                    // preserving Phase 2's "picker shown only once per run" design: only the
-                    // *viewer* resumes via mapEditorState.everOpened, never the picker itself. No
-                    // blank-frame drain needed on this exit path -- mapEditor_start()'s own first
-                    // frame (and its own exit-time drain) already fully repaints the screen.
-                    return;
+                    // Selecting a map ends this screen -- the caller (MCF_openMapEditorItem) is the
+                    // one that now calls mapEditor_start(), not this function directly, so that
+                    // Escape from the viewer can loop back into a fresh call to this screen instead
+                    // of unwinding all the way out (see the plan file). No blank-frame drain needed
+                    // on this exit path -- mapEditor_start()'s own first frame (and its own exit-time
+                    // drain) already fully repaints the screen.
+                    return true;
                 }
                 break;
             case KEY_BACKSPACE:
@@ -1035,6 +1036,7 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                         mapEditorState.mapDir = CLIENT_MAPS_DIR;
                         mapEditorState.mapName = mapEditor_uniqueMapName(mapEditor_sanitizeFilename(newTitle));
                         mapEditor_rebuildRenderMap(); // always succeeds for a freshly-initBlank()ed map -- see EditorMap::initBlank's own contract
+                        mapEditorState.dirty = false; // freshly created, blank -- nothing unsaved yet
                         graphics.update_minimap_background(mapEditorState.renderMap);
                         graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
                         mapEditorState.panRoom = RoomCoords(0, 0);
@@ -1042,8 +1044,7 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                         mapEditorState.everOpened = true;
                         destroy_bitmap(preview);
                         show_mouse(NULL);
-                        mapEditor_start(quitFlag);
-                        return; // same "picker shown only once per run" reasoning as the Enter-to-open case above
+                        return true; // see the Enter-to-open case above -- the caller now calls mapEditor_start()
                     }
                     // Cancelled (or quitting) -- fall back to the still-running picker loop below;
                     // mapEditorState was never touched, so there's nothing to undo.
@@ -1104,6 +1105,7 @@ void GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
     }
     show_mouse(NULL);
     destroy_bitmap(preview);
+    return false; // escaped to the main menu, or the process is quitting
 }
 
 // Map editor Phase 3 core-mutation support types/helpers (see TODO.md and the plan file). Kept at
@@ -1223,7 +1225,81 @@ bool GuiClient::mapEditor_save() throw () {
     if (!out)
         return false;
     mapEditorState.doc.exportText(out);
-    return !out.fail();
+    if (out.fail())
+        return false;
+    mapEditorState.dirty = false;
+    return true;
+}
+
+// "Unsaved changes" prompt shown when Escape is pressed in the editor with mapEditorState.dirty set
+// (see the plan file). Modeled structurally on mapEditor_newMapDialog just above -- same nested
+// sub-loop shape, no mouse-visibility or page-flip-drain management of its own, since it's always
+// called from inside mapEditor_start()'s own already-running loop. Returns true if the caller
+// should exit the viewer (Save succeeded, or Discard was chosen -- both already fully applied
+// internally below); false if cancelled (or the process is quitting mid-dialog, which is harmless
+// either way -- the outer loop's own quitCommand/*quitFlag check independently guarantees a real
+// exit regardless of this return value).
+bool GuiClient::mapEditor_confirmDiscardDialog(volatile bool* quitFlag) throw () {
+    bool showSaveFailedError = false;
+    bool confirmed = false; // true once Save (succeeded) or Discard has been chosen
+    bool cancelled = false;
+
+    while (!confirmed && !cancelled && !quitCommand && !*quitFlag) {
+        if (keyboard_needs_poll())
+            poll_keyboard();
+        if (mouse_needs_poll())
+            poll_mouse();
+
+        const bool controlPressed = key[KEY_LCONTROL] || key[KEY_RCONTROL];
+        if (controlPressed && key[KEY_F12]) { // same hard-quit as the main loop()
+            quitCommand = true;
+            break;
+        }
+
+        while (keypressed()) {
+            int ch = readkey();
+            const int sc = (ch >> 8);
+            ch &= 0xFF;
+            switch (sc) {
+            case KEY_S:
+                if (mapEditor_save())
+                    confirmed = true;
+                else
+                    showSaveFailedError = true; // stay in the dialog -- never silently lose the unsaved doc
+                break;
+            case KEY_D:
+                mapEditorState.dirty = false;
+                // MCF_openMapEditorItem()'s "resume the viewer directly" shortcut (guarded by
+                // everOpened) would otherwise silently resume this exact discarded in-memory doc
+                // the next time "Map editor" is opened from the main menu, and re-prompt "unsaved
+                // changes" despite nothing new being edited -- resetting everOpened forces that
+                // next entry back through the picker instead, which is always safe (the picker
+                // never reads mapEditorState.doc, only re-scans disk).
+                mapEditorState.everOpened = false;
+                confirmed = true;
+                break;
+            case KEY_ESC:
+                cancelled = true;
+                break;
+            case KEY_F11:
+                screenshot = true;
+                break;
+            }
+        }
+
+        sched_yield(); // give other threads a chance, matching mapEditor_start()/mapEditor_newMapDialog()
+
+        graphics.startDraw();
+        graphics.draw_mapeditor_confirm_discard_dialog(showSaveFailedError);
+        graphics.endDraw();
+        graphics.draw_screen(false);
+        if (screenshot) {
+            save_screenshot();
+            screenshot = false;
+        }
+    }
+
+    return confirmed;
 }
 
 // Self-contained map viewer/editor (Phase 2 built the read-only viewer; Phase 3 -- see TODO.md and
@@ -1267,8 +1343,9 @@ void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
             else if (sc == KEY_ESC) {
                 if (drag.mode != MapEditorDrag::None)
                     drag.mode = MapEditorDrag::None; // cancel the in-progress drag, don't exit
-                else
-                    exitRequested = true;
+                else if (!mapEditorState.dirty || mapEditor_confirmDiscardDialog(quitFlag))
+                    exitRequested = true; // clean, or the user chose Save/Discard -- either way, go back to the picker
+                // else: Cancel -- exitRequested stays false, editor stays open, nothing else changes
             }
             else if (sc == KEY_LEFT)
                 mapEditorState.panRoom.x = positiveModulo(mapEditorState.panRoom.x - 1, map.w);
@@ -5803,11 +5880,28 @@ void GuiClient::MCF_prepareReplayMenu() throw () {
     saveReplayCache(replays);
 }
 
+// Loops between the picker and the viewer for as long as the user keeps bouncing between them --
+// Escape from the viewer (mapEditor_start()) now goes back to the picker instead of unwinding all
+// the way out (see the plan file), so this needs an explicit loop rather than the old "call one or
+// the other once" logic. An explicit loop (rather than having the two functions tail-call each
+// other) avoids unbounded call-stack growth across many picker<->viewer round-trips in one long
+// session. If a map was already opened earlier this run, skip the picker and resume the viewer
+// directly, exactly like before.
 void GuiClient::MCF_openMapEditorItem() throw () {
-    if (mapEditorState.everOpened)
-        mapEditor_start(m_quitFlag);        // resume: viewer directly, picker not shown again this run
-    else
-        mapEditor_pickerScreen(m_quitFlag); // first visit this run
+    bool inPicker = !mapEditorState.everOpened;
+    for (;;) {
+        if (inPicker) {
+            if (!mapEditor_pickerScreen(m_quitFlag))
+                return; // escaped to the main menu, or the process is quitting
+            inPicker = false;
+        }
+        else {
+            mapEditor_start(m_quitFlag);
+            if (quitCommand || *m_quitFlag)
+                return; // quitting mid-viewer (Ctrl+F12 or window close)
+            inPicker = true; // Escape from the viewer -- go back to the picker
+        }
+    }
 }
 
 void GuiClient::load_highlight_texts() throw () {

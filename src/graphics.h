@@ -368,6 +368,11 @@ public:
     // blank map -- see GuiClient::mapEditor_newMapDialog). focusField: 0=width, 1=height, 2=title.
     void draw_mapeditor_newmap_dialog(int width, int height, const std::string& title, int focusField, bool showTitleRequiredError) throw ();
 
+    // Draws the "unsaved changes" prompt shown when Escape is pressed in the editor with pending
+    // edits (see GuiClient::mapEditor_confirmDiscardDialog) -- Save/Discard/Cancel, no navigable
+    // field, just three direct hotkeys.
+    void draw_mapeditor_confirm_discard_dialog(bool showSaveFailedError) throw ();
+
 private:
     void unload_bitmaps() throw ();
 

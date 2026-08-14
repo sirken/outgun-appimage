@@ -220,7 +220,9 @@ class GuiClient : public ClientBase, public ClientInterface {
         RoomCoords panRoom;    // top-left room currently shown
         double zoom;           // the "visible_rooms" value passed to Graphics::setRoomLayout
 
-        MapEditorState() throw () : everOpened(false), panRoom(0, 0), zoom(1) { }
+        bool dirty;            // true once 'doc' has an edit not yet saved -- see mapEditor_rebuildRenderMap/mapEditor_save/mapEditor_confirmDiscardDialog
+
+        MapEditorState() throw () : everOpened(false), panRoom(0, 0), zoom(1), dirty(false) { }
     };
     MapEditorState mapEditorState;
     volatile bool* m_quitFlag; // set at the top of loop(); lets mapEditor_start(), reached via a menu hook, honor the same quit flag loop() was given
@@ -350,13 +352,14 @@ class GuiClient : public ClientBase, public ClientInterface {
     void MCF_exitOutgun() throw ();
     void MCF_replay(TreeItem& target) throw ();
     void MCF_prepareReplayMenu() throw ();
-    void MCF_openMapEditorItem() throw (); // resumes the viewer directly if already opened this run, else shows the picker screen
+    void MCF_openMapEditorItem() throw (); // loops between the picker and the viewer (Escape from the viewer goes back to the picker, not straight to the main menu) -- resumes the viewer directly, skipping the picker, if a map was already opened this run
 
     // Map editor Phase 3 helpers (mapEditor_pickerScreen/mapEditor_start, guiclient.cpp) -- see the
     // MapEditorState comment above for how mapEditorState.doc/renderMap relate.
     bool mapEditor_rebuildRenderMap() throw (); // re-derives renderMap from doc via exportText/parse_file; also this phase's validator (see plan)
     bool mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int& height, std::string& title) throw (); // true if confirmed
     bool mapEditor_save() throw ();
+    bool mapEditor_confirmDiscardDialog(volatile bool* quitFlag) throw (); // true: caller should exit the viewer (Save or Discard already fully applied); false: cancelled
     void MCF_prepareMainMenu() throw ();
     void MCF_preparePlayerMenu() throw ();
     void MCF_prepareDrawPlayerMenu() throw ();
@@ -584,7 +587,7 @@ public:
     void stop() throw ();
     void loop(volatile bool* quitFlag, bool firstTimeSplash) throw ();
     void language_selection_start(volatile bool* quitFlag) throw ();
-    void mapEditor_pickerScreen(volatile bool* quitFlag) throw ();
+    bool mapEditor_pickerScreen(volatile bool* quitFlag) throw (); // true if a map was opened (caller should now show the viewer); false if the user escaped to the main menu, or the process is quitting
     void mapEditor_start(volatile bool* quitFlag) throw ();
 };
 
