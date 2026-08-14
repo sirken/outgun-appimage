@@ -19,10 +19,10 @@ Some of these may already exist in later phases, but these items can be addresse
 - I changed my mind on the wraparound visual. Do not use wraparound to show the SAME rows and columns at the same time on both ends. It's too distracting and confusing. Only show each room of the map once.
 - DO keep the separate map movement wrapping feature, so when we move up/down/left/right the map movement continues to wraps around.
 
-- Red, white and yellow grid lines are too bold and visible. Change their alpha so they are transparent and less visible at 40% opacity.
+- ~~Red, white and yellow grid lines are too bold and visible. Change their alpha so they are transparent and less visible at 40% opacity.~~
 
-- Keep the map "boundary" outline color at 80% opacity so we can see where the map edges are all all times. This will be helpful when we move the map around and the map edges are in the center of the screen somewhere. 
- 
+- ~~Keep the map "boundary" outline color at 80% opacity so we can see where the map edges are all all times. This will be helpful when we move the map around and the map edges are in the center of the screen somewhere.~~
+
 - The arrow keys can already move the map in any direction. For the mouse, add new arrow buttons to the top, bottom, left, right and corners outside the map boundary that allow us to move the map one room in that direction. These arrow buttons should span the entire width or height of the map size. The corner buttons will move the map one room in both directions. The buttons should be 50% opacity when inactive, and highlight to 100% on mouseover.
 
 - Add the ability to click on the minimap and move to that area of the map
@@ -128,6 +128,40 @@ Some of these may already exist in later phases, but these items can be addresse
 
 
 # Done
+
+- ~~Map editor: dim the map-info grid lines to 40% opacity, keep the map
+  boundary at 80%~~: the fine white grid, the yellow center-cross lines,
+  and the red room-boundary lines drawn by `Graphics::drawRoomBackground()`
+  when `mapInfoMode` is on (shared by both the map editor viewer and the
+  in-game "show map info" player toggle -- one code path, no separate
+  editor-only rendering to touch) were all previously drawn fully opaque,
+  overpowering the actual wall/ground texture underneath. Wrapped the
+  fine-grid/center-cross `hline`/`vline` calls in `set_trans_mode(102)`
+  (255 * .40, matching the existing `set_trans_mode(120)` precedent used
+  a few lines up for the respawn-area overlay) and restored `solid_mode()`
+  afterward so the change doesn't leak into any later drawing.
+
+  The room-boundary lines needed a second, brighter tier: each room only
+  ever draws its own top+left edge (the bottom/right edges of the map's
+  last row/column are covered "for free" by the next room wrapping around
+  and drawing its own top/left edge there, the same wraparound trick
+  `repeatMapX`/`repeatMapY` panning already relies on elsewhere) -- so a
+  room at `roomy == 0` or `roomx == 0` is drawing the *actual* edge of the
+  map data, not just an internal room-to-room seam. Kept those at 80%
+  (`set_trans_mode(204)`, i.e. 255 * .80) while internal seams stay at the
+  same 40% as the rest of the grid, so the map's true boundary stays
+  visible even after panning it away from the screen's edge.
+
+  Verified visually (2x2 "2 versus 2 (duel)" map, showing both an internal
+  seam and all four true map edges at once) and, more rigorously, by
+  sampling rendered pixel values directly: the top/left edge lines blend
+  to exactly R=204 against the black background (255 * .80 + 0 * .20),
+  and the internal boundary/fine-grid/center-cross lines all blend
+  consistently with a 255 * .40 blend against their local background --
+  confirming the actual on-screen alpha matches the intended values
+  exactly, not just "looks dimmer". Full clean rebuild (`outgun`,
+  `outgun-ded`) and the `mapeditor_roundtrip` suite (47/47, unaffected --
+  this change doesn't touch the document model) re-verified afterward.
 
 - ~~Map editor: Escape now returns to the map picker, with an
   unsaved-changes prompt~~: previously, Escape in the editor

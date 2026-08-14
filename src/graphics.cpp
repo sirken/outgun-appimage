@@ -634,12 +634,28 @@ void Graphics::drawRoomBackground(BITMAP* roombg, const Map& map, int roomx, int
             for (vector<WorldCoords>::const_iterator si = map.tinfo[team].spawn.begin(); si != map.tinfo[team].spawn.end(); ++si)
                 if (si->room == RoomCoords(roomx, roomy))
                     dcirclefill(roombg, pf_scale(si->x), pf_scale(si->y), pf_scaled(PLAYER_RADIUS), teamcol[team]);
+
+        // Fine grid + center cross lines: kept subtle (40% alpha) so they don't distract from the
+        // actual map content underneath (see TODO.md's "Map editor tweaks").
+        set_trans_mode(102); // 255 * .40, rounded
         for (int y = 1; y < 12; ++y)
             hline(roombg, 0, pf_scale(plh * y / 12.), roombg->w - 1, y == 6 ? colour[Colour::map_info_grid_main] : colour[Colour::map_info_grid]);
         for (int x = 1; x < 16; ++x)
             vline(roombg, pf_scale(plw * x / 16.), 0, roombg->h - 1, x == 8 ? colour[Colour::map_info_grid_main] : colour[Colour::map_info_grid]);
+
+        // Room boundary: drawn once per room, its top+left edge only -- the bottom/right edges of
+        // the map's last row/column are covered by the next room wrapping around and drawing its
+        // own top/left edge there, the same wraparound trick repeatMapX/Y panning already relies on
+        // elsewhere. A room at roomy==0 (top edge) or roomx==0 (left edge) is drawing the *actual*
+        // edge of the map data, not just an internal room-to-room seam -- keep those noticeably
+        // brighter (80%) than the regular internal boundaries (40%, same as the rest of the grid)
+        // so the map's true edge stays visible even after panning it away from the screen's own
+        // edge (see TODO.md's "Map editor tweaks").
+        set_trans_mode(roomy == 0 ? 204 : 102); // 255 * .80 / .40, rounded
         hline(roombg, 0, 0, roombg->w - 1, colour[Colour::map_info_grid_room]);
+        set_trans_mode(roomx == 0 ? 204 : 102);
         vline(roombg, 0, 0, roombg->h - 1, colour[Colour::map_info_grid_room]);
+        solid_mode();
     }
     if (TEST_FALL_ON_WALL)
         for (int y = 0; y < plh; y += 2)
