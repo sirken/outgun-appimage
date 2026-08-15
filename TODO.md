@@ -129,6 +129,18 @@ Some of these may already exist in later phases, but these items can be addresse
 
 # Done
 
+- ~~Map editor: make the map boundary outline thicker (2px instead of 1px)~~:
+  follow-up to the opacity change below -- the 80%-opacity top/left edge
+  lines in `Graphics::drawRoomBackground()` (`roomy == 0`/`roomx == 0`)
+  now draw a second `hline`/`vline` one pixel inward, so the true map edge
+  is 2px thick. The 40%-opacity internal room-to-room seams and the fine
+  grid/center-cross lines are unchanged (still 1px), keeping the visual
+  distinction between "true map edge" and "internal seam" from the
+  opacity change intact and reinforcing it. Verified by pixel sampling:
+  the top/left edge is now two consecutive pixels of R=204, while an
+  internal seam remains a single pixel of R=112. Full clean rebuild and
+  `mapeditor_roundtrip` (47/47) re-verified.
+
 - ~~Map editor: dim the map-info grid lines to 40% opacity, keep the map
   boundary at 80%~~: the fine white grid, the yellow center-cross lines,
   and the red room-boundary lines drawn by `Graphics::drawRoomBackground()`

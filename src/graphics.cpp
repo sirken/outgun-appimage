@@ -648,13 +648,18 @@ void Graphics::drawRoomBackground(BITMAP* roombg, const Map& map, int roomx, int
         // own top/left edge there, the same wraparound trick repeatMapX/Y panning already relies on
         // elsewhere. A room at roomy==0 (top edge) or roomx==0 (left edge) is drawing the *actual*
         // edge of the map data, not just an internal room-to-room seam -- keep those noticeably
-        // brighter (80%) than the regular internal boundaries (40%, same as the rest of the grid)
-        // so the map's true edge stays visible even after panning it away from the screen's own
-        // edge (see TODO.md's "Map editor tweaks").
+        // brighter (80%) than the regular internal boundaries (40%, same as the rest of the grid),
+        // and 2px thick (the extra px drawn one pixel inward) instead of 1px, so the map's true
+        // edge stays clearly visible even after panning it away from the screen's own edge (see
+        // TODO.md's "Map editor tweaks").
         set_trans_mode(roomy == 0 ? 204 : 102); // 255 * .80 / .40, rounded
         hline(roombg, 0, 0, roombg->w - 1, colour[Colour::map_info_grid_room]);
+        if (roomy == 0)
+            hline(roombg, 0, 1, roombg->w - 1, colour[Colour::map_info_grid_room]);
         set_trans_mode(roomx == 0 ? 204 : 102);
         vline(roombg, 0, 0, roombg->h - 1, colour[Colour::map_info_grid_room]);
+        if (roomx == 0)
+            vline(roombg, 1, 0, roombg->h - 1, colour[Colour::map_info_grid_room]);
         solid_mode();
     }
     if (TEST_FALL_ON_WALL)
