@@ -5,6 +5,8 @@
 
 - In the map editor main screen, there are a redraw issues on the top and right sides outside the main map. Hovering the mouse over these areas leaves ghost mouse cursors artifacts sometimes. Hovering over the main map near the right side, the mouse stats text such as "room 1,0  (28x262)" leaves artifacts and ghost text on the minimap and the area below it.
 
+- Map version number needs to be changed in the bug report policy screen, where it remains unchanged.
+
 
 ## Map selection tweaks
 
@@ -12,6 +14,9 @@
 
 
 # Features
+
+
+Change the menu navigation steps for the map editor. Currently we press 7 from the main menu and go into the map selection screen, but let's change this. Instead, go from the main menu directly into the editor and a new map. The level chooser screen will be moved into the Map > Open screen which hasn't been created yet.
 
 ## Map editor tweaks
 Some of these may already exist in later phases, but these items can be addressed in whichever phase they make the most sense.
@@ -39,6 +44,8 @@ Some of these may already exist in later phases, but these items can be addresse
     - Close
 
   - Map menu item, with the following items:
+    - New
+    - Open
     - Settings: edit map name, author, any other editable details. Show map path/location in the system. Include an "Open map location" button which opens system file manager
     - Validate: run validation on the map structure, show validation output, errors, etc
     - Save
