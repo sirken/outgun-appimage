@@ -221,8 +221,9 @@ class GuiClient : public ClientBase, public ClientInterface {
         double zoom;           // the "visible_rooms" value passed to Graphics::setRoomLayout
 
         bool dirty;            // true once 'doc' has an edit not yet saved -- see mapEditor_rebuildRenderMap/mapEditor_save/mapEditor_confirmDiscardDialog
+        bool everSaved;        // true once this doc has been written to disk at least once (or was opened from an existing file) -- see mapEditor_ensureNamed/mapEditor_save/mapEditor_populateNewMap's call sites
 
-        MapEditorState() throw () : everOpened(false), panRoom(0, 0), zoom(1), dirty(false) { }
+        MapEditorState() throw () : everOpened(false), panRoom(0, 0), zoom(1), dirty(false), everSaved(false) { }
     };
     MapEditorState mapEditorState;
     volatile bool* m_quitFlag; // set at the top of loop(); lets mapEditor_start(), reached via a menu hook, honor the same quit flag loop() was given
@@ -352,12 +353,15 @@ class GuiClient : public ClientBase, public ClientInterface {
     void MCF_exitOutgun() throw ();
     void MCF_replay(TreeItem& target) throw ();
     void MCF_prepareReplayMenu() throw ();
-    void MCF_openMapEditorItem() throw (); // loops between the picker and the viewer (Escape from the viewer goes back to the picker, not straight to the main menu) -- resumes the viewer directly, skipping the picker, if a map was already opened this run
+    void MCF_openMapEditorItem() throw (); // first entry this run: straight into the viewer with a default blank 3x3 "new" map, no dialog and no picker (see the plan file). Ctrl+O inside the viewer shows the picker (stand-in for the not-yet-built Map > Open); resumes the viewer directly, skipping both, if a map was already opened this run
 
     // Map editor Phase 3 helpers (mapEditor_pickerScreen/mapEditor_start, guiclient.cpp) -- see the
     // MapEditorState comment above for how mapEditorState.doc/renderMap relate.
     bool mapEditor_rebuildRenderMap() throw (); // re-derives renderMap from doc via exportText/parse_file; also this phase's validator (see plan)
     bool mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int& height, std::string& title) throw (); // true if confirmed
+    void mapEditor_populateNewMap(int width, int height, const std::string& title) throw (); // fills mapEditorState with a fresh initBlank() map; shared by the picker's Ctrl+N and MCF_openMapEditorItem's first-entry flow
+    bool mapEditor_saveAsDialog(volatile bool* quitFlag, std::string& title, std::string& author) throw (); // true if confirmed
+    bool mapEditor_ensureNamed(volatile bool* quitFlag) throw (); // prompts via mapEditor_saveAsDialog if !everSaved; true if OK to proceed with an actual save, false if the prompt was cancelled
     bool mapEditor_save() throw ();
     bool mapEditor_confirmDiscardDialog(volatile bool* quitFlag) throw (); // true: caller should exit the viewer (Save or Discard already fully applied); false: cancelled
     void MCF_prepareMainMenu() throw ();
@@ -587,8 +591,9 @@ public:
     void stop() throw ();
     void loop(volatile bool* quitFlag, bool firstTimeSplash) throw ();
     void language_selection_start(volatile bool* quitFlag) throw ();
-    bool mapEditor_pickerScreen(volatile bool* quitFlag) throw (); // true if a map was opened (caller should now show the viewer); false if the user escaped to the main menu, or the process is quitting
-    void mapEditor_start(volatile bool* quitFlag) throw ();
+    bool mapEditor_pickerScreen(volatile bool* quitFlag) throw (); // true if a map was opened (caller should now show the viewer); false if the user cancelled, or the process is quitting -- always invoked via Ctrl+O from within the viewer now, never a landing screen (see the plan file)
+    bool mapEditor_start(volatile bool* quitFlag) throw (); // true if the user pressed Ctrl+O (caller should show the picker next); false if Escape (caller returns to the main menu)
+    void mapEditor_drainToMainMenu() throw (); // two blank-background frames to flush both page-flip buffers -- shared by every map-editor sub-loop's "back to the main menu" exit path
 };
 
 #endif

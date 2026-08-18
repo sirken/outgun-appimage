@@ -838,20 +838,22 @@ static string mapEditor_uniqueMapName(const string& base) throw () {
 }
 
 // "New map" dialog (Phase 3, see TODO.md and the plan file): a tiny bespoke sub-loop for the three
-// fields a blank map needs (width, height, title). Modeled structurally on mapEditor_pickerScreen()
-// below (same poll/hard-quit/keypress-switch shape), but note it does *not* manage mouse visibility
-// or do the page-flip blank-frame exit drain -- unlike mapEditor_pickerScreen()/mapEditor_start(),
-// this is always a short-lived nested loop called from within mapEditor_pickerScreen()'s own
-// already-running loop, which continues drawing immediately afterward either way (Ctrl+N cancelled
-// falls back to the still-active picker; confirmed proceeds into mapEditor_start()), so there's
-// never a "returning to the sparse main menu" moment here that would need either one. Returns true
-// if confirmed (Enter with a non-empty title), false if cancelled (Escape) or the process is
-// quitting.
+// fields a blank map needs -- title, width, height, in that order and focused in that order by
+// default (title first, so typing a name needs no navigation first). Modeled structurally on
+// mapEditor_pickerScreen() below (same poll/hard-quit/keypress-switch shape), but note it does
+// *not* manage mouse visibility or do the page-flip blank-frame exit drain itself -- it's always a
+// short-lived nested loop called from within mapEditor_pickerScreen()'s own already-running loop
+// (its one remaining call site, Ctrl+N -- MCF_openMapEditorItem()'s first-entry flow bypasses this
+// dialog entirely now, going straight to a default blank map, see its own comment), which continues
+// drawing immediately afterward either way (cancelled falls back to the still-active picker;
+// confirmed proceeds into mapEditor_start()), so there's never a "returning to the sparse main
+// menu" moment here that would need either one. Returns true if confirmed (Enter with a non-empty
+// title), false if cancelled (Escape) or the process is quitting.
 bool GuiClient::mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int& height, string& title) throw () {
     width = 3;
     height = 3;
     title.clear();
-    int focusField = 0; // 0=width, 1=height, 2=title
+    int focusField = 0; // 0=title, 1=width, 2=height -- title first and focused by default (user request)
     bool showTitleRequiredError = false;
     bool confirmed = false;
     bool cancelled = false;
@@ -883,19 +885,19 @@ bool GuiClient::mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int&
                 focusField = (focusField + 1) % 3;
                 break;
             case KEY_LEFT:
-                if (focusField == 0 && width > 1)
+                if (focusField == 1 && width > 1)
                     --width;
-                else if (focusField == 1 && height > 1)
+                else if (focusField == 2 && height > 1)
                     --height;
                 break;
             case KEY_RIGHT:
-                if (focusField == 0 && width < 16)
+                if (focusField == 1 && width < 16)
                     ++width;
-                else if (focusField == 1 && height < 16)
+                else if (focusField == 2 && height < 16)
                     ++height;
                 break;
             case KEY_BACKSPACE:
-                if (focusField == 2 && !title.empty())
+                if (focusField == 0 && !title.empty())
                     title.erase(title.size() - 1);
                 break;
             case KEY_ENTER: case KEY_ENTER_PAD:
@@ -908,7 +910,7 @@ bool GuiClient::mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int&
                 screenshot = true;
                 break;
             default:
-                if (focusField == 2 && !is_nonprintable_char(ch)) {
+                if (focusField == 0 && !is_nonprintable_char(ch)) {
                     title += static_cast<char>(ch);
                     showTitleRequiredError = false;
                 }
@@ -930,6 +932,140 @@ bool GuiClient::mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int&
     return confirmed;
 }
 
+// "Save map" dialog: prompts for title + author the first time a map is saved (see the plan file --
+// a brand new map's default title ("new") and blank author shouldn't get silently written to disk
+// un-asked). Modeled structurally on mapEditor_newMapDialog just above -- same shape, same
+// non-empty-title requirement, same "no mouse-visibility/exit-drain management" rationale (always a
+// short-lived nested loop, see mapEditor_ensureNamed below) -- but with only the two fields a save
+// actually needs, no width/height (resizing an in-progress map isn't what this prompt is for), and
+// mod-2 field cycling instead of mod-3. Returns true if confirmed (Enter with a non-empty title),
+// false if cancelled (Escape) or the process is quitting.
+bool GuiClient::mapEditor_saveAsDialog(volatile bool* quitFlag, string& title, string& author) throw () {
+    int focusField = 0; // 0=title, 1=author -- title first and focused by default
+    bool showTitleRequiredError = false;
+    bool confirmed = false;
+    bool cancelled = false;
+
+    while (!confirmed && !cancelled && !quitCommand && !*quitFlag) {
+        if (keyboard_needs_poll())
+            poll_keyboard();
+        if (mouse_needs_poll())
+            poll_mouse();
+
+        const bool controlPressed = key[KEY_LCONTROL] || key[KEY_RCONTROL];
+        if (controlPressed && key[KEY_F12]) { // same hard-quit as the main loop()
+            quitCommand = true;
+            break;
+        }
+
+        while (keypressed()) {
+            int ch = readkey();
+            const int sc = (ch >> 8);
+            ch &= 0xFF;
+            switch (sc) {
+            case KEY_ESC:
+                cancelled = true;
+                break;
+            case KEY_UP: case KEY_DOWN: // only two fields -- "previous" and "next" are the same toggle
+                focusField = (focusField + 1) % 2;
+                break;
+            case KEY_BACKSPACE:
+                if (focusField == 0 && !title.empty())
+                    title.erase(title.size() - 1);
+                else if (focusField == 1 && !author.empty())
+                    author.erase(author.size() - 1);
+                break;
+            case KEY_ENTER: case KEY_ENTER_PAD:
+                if (title.empty())
+                    showTitleRequiredError = true;
+                else
+                    confirmed = true;
+                break;
+            case KEY_F11:
+                screenshot = true;
+                break;
+            default:
+                if (!is_nonprintable_char(ch)) {
+                    if (focusField == 0) {
+                        title += static_cast<char>(ch);
+                        showTitleRequiredError = false;
+                    }
+                    else
+                        author += static_cast<char>(ch);
+                }
+            }
+        }
+
+        sched_yield(); // give other threads a chance, matching mapEditor_newMapDialog()/mapEditor_pickerScreen()/mapEditor_start()
+
+        graphics.startDraw();
+        graphics.draw_mapeditor_saveas_dialog(title, author, focusField, showTitleRequiredError);
+        graphics.endDraw();
+        graphics.draw_screen(false);
+        if (screenshot) {
+            save_screenshot();
+            screenshot = false;
+        }
+    }
+
+    return confirmed;
+}
+
+// Two blank-background frames to flush both page-flip buffers before returning to the sparse main
+// menu rendering -- see mapEditor_start()'s own former comment (now here) for the full page-flipping
+// explanation. Shared by every full-screen map-editor sub-loop's "give up, back to the main menu"
+// exit path (mapEditor_pickerScreen(), mapEditor_start(), and MCF_openMapEditorItem()'s own
+// first-entry New Map dialog, which has no sub-loop of its own to provide this).
+void GuiClient::mapEditor_drainToMainMenu() throw () {
+    for (int i = 0; i < 2; ++i) {
+        graphics.startDraw();
+        graphics.draw_background(false);
+        graphics.endDraw();
+        graphics.draw_screen(false);
+    }
+}
+
+// Populates mapEditorState with a fresh blank map (Phase 3's EditorMap::initBlank). Shared by both
+// places that can create one: the picker's own Ctrl+N (kept as a shortcut once inside the "Open"
+// screen -- see the plan file) and MCF_openMapEditorItem's first-entry-this-run flow, which replaces
+// the old "always show the picker first" behavior with going straight to a new map.
+void GuiClient::mapEditor_populateNewMap(int width, int height, const string& title) throw () {
+    mapEditorState.doc = EditorMap();
+    mapEditorState.doc.initBlank(width, height, title);
+    mapEditorState.mapDir = CLIENT_MAPS_DIR;
+    mapEditorState.mapName = mapEditor_uniqueMapName(mapEditor_sanitizeFilename(title));
+    mapEditor_rebuildRenderMap(); // always succeeds for a freshly-initBlank()ed map -- see EditorMap::initBlank's own contract
+    mapEditorState.dirty = false; // freshly created, blank -- nothing unsaved yet
+    mapEditorState.everSaved = false; // never written to disk yet -- see mapEditor_ensureNamed. Callers that just collected a deliberate title via a dialog (the picker's own Ctrl+N) override this back to true right after
+    graphics.update_minimap_background(mapEditorState.renderMap);
+    graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+    mapEditorState.panRoom = RoomCoords(0, 0);
+    mapEditorState.zoom = max(width, height);
+    mapEditorState.everOpened = true;
+}
+
+// If this doc has never been saved (mapEditorState.everSaved), prompts for a title/author via
+// mapEditor_saveAsDialog first and applies them -- see the plan file: the auto-created "new" map
+// (MCF_openMapEditorItem's first-entry flow, which skips the New Map dialog entirely) shouldn't
+// silently save itself to disk under that un-chosen default name. Docs opened from an existing file,
+// or created via the picker's own Ctrl+N (which already asked for a deliberate title), have
+// everSaved set true immediately and skip straight through. Returns true if it's now OK to go ahead
+// with an actual mapEditor_save() call; false if the user cancelled the naming prompt (nothing about
+// the doc changed).
+bool GuiClient::mapEditor_ensureNamed(volatile bool* quitFlag) throw () {
+    if (mapEditorState.everSaved)
+        return true;
+    string title; // deliberately blank, not doc.title's "new" default -- see the plan file, don't presume it's wanted
+    string author = mapEditorState.doc.author;
+    if (!mapEditor_saveAsDialog(quitFlag, title, author))
+        return false;
+    mapEditorState.doc.title = title;
+    mapEditorState.doc.author = author;
+    mapEditorState.mapName = mapEditor_uniqueMapName(mapEditor_sanitizeFilename(title));
+    mapEditor_rebuildRenderMap(); // always succeeds -- title/author changes can't fail structural validation
+    return true;
+}
+
 // Two-column map picker (Phase 2.5, see TODO.md and the plan file): a live-filterable, grouped
 // list on the left with keyboard focus always on the filter text -- there's nothing else to focus,
 // typed characters always go there by construction, Up/Down/Enter/Escape/Backspace are simply
@@ -937,7 +1073,9 @@ bool GuiClient::mapEditor_newMapDialog(volatile bool* quitFlag, int& width, int&
 // (handleKeypress() above) rather than the Menu/Textfield system -- and a right-column minimap
 // preview + stats panel for whichever map is highlighted. Bespoke self-contained loop, same model
 // as mapEditor_start()/language_selection_start(): the Menu/Component system has no concept of two
-// columns or a live side-panel tied to list selection.
+// columns or a live side-panel tied to list selection. Reached only via Ctrl+O from inside the
+// viewer now (see the plan file's "Menu navigation" restructuring) -- a stand-in for the not-yet-
+// built Map > Open menu item -- never as the map editor's own landing screen anymore.
 bool GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
     log("mapEditor_pickerScreen()");
 
@@ -999,6 +1137,7 @@ bool GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                     mapEditorState.zoom = max(entry.map.w, entry.map.h);   // whole map visible at first
                     mapEditorState.everOpened = true;
                     mapEditorState.dirty = false; // freshly opened -- nothing unsaved yet
+                    mapEditorState.everSaved = true; // opened from an existing file -- already has a name, no save prompt needed
                     // Populates the *viewer's* in-game-sized minimap (separate bitmap from this
                     // screen's own preview) -- see the identical comment this had in Phase 2's
                     // MCF_openMap, now inlined here since that function no longer exists.
@@ -1031,17 +1170,8 @@ bool GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
                     int newWidth, newHeight;
                     string newTitle;
                     if (mapEditor_newMapDialog(quitFlag, newWidth, newHeight, newTitle)) {
-                        mapEditorState.doc = EditorMap();
-                        mapEditorState.doc.initBlank(newWidth, newHeight, newTitle);
-                        mapEditorState.mapDir = CLIENT_MAPS_DIR;
-                        mapEditorState.mapName = mapEditor_uniqueMapName(mapEditor_sanitizeFilename(newTitle));
-                        mapEditor_rebuildRenderMap(); // always succeeds for a freshly-initBlank()ed map -- see EditorMap::initBlank's own contract
-                        mapEditorState.dirty = false; // freshly created, blank -- nothing unsaved yet
-                        graphics.update_minimap_background(mapEditorState.renderMap);
-                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
-                        mapEditorState.panRoom = RoomCoords(0, 0);
-                        mapEditorState.zoom = max(newWidth, newHeight);
-                        mapEditorState.everOpened = true;
+                        mapEditor_populateNewMap(newWidth, newHeight, newTitle);
+                        mapEditorState.everSaved = true; // this dialog just collected a deliberate title -- don't ask again at save time
                         destroy_bitmap(preview);
                         show_mouse(NULL);
                         return true; // see the Enter-to-open case above -- the caller now calls mapEditor_start()
@@ -1094,18 +1224,13 @@ bool GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
         }
     }
 
-    // Same page-flipping-buffer drain mapEditor_start() uses on exit (see its own comment) -- this
-    // is a second bespoke full-screen loop with the identical exposure, needed here since both the
-    // Escape and hard-quit exit paths above go straight back to the sparse main menu rendering.
-    for (int i = 0; i < 2; ++i) {
-        graphics.startDraw();
-        graphics.draw_background(false);
-        graphics.endDraw();
-        graphics.draw_screen(false);
-    }
+    // Both the Escape and hard-quit exit paths above go straight back to the sparse main menu
+    // rendering (Ctrl+O's caller loops back into the viewer instead, but doesn't know that here --
+    // it re-checks mapEditorState.everOpened itself afterward, see the plan file).
+    mapEditor_drainToMainMenu();
     show_mouse(NULL);
     destroy_bitmap(preview);
-    return false; // escaped to the main menu, or the process is quitting
+    return false; // cancelled, or the process is quitting
 }
 
 // Map editor Phase 3 core-mutation support types/helpers (see TODO.md and the plan file). Kept at
@@ -1228,6 +1353,7 @@ bool GuiClient::mapEditor_save() throw () {
     if (out.fail())
         return false;
     mapEditorState.dirty = false;
+    mapEditorState.everSaved = true;
     return true;
 }
 
@@ -1262,10 +1388,14 @@ bool GuiClient::mapEditor_confirmDiscardDialog(volatile bool* quitFlag) throw ()
             ch &= 0xFF;
             switch (sc) {
             case KEY_S:
-                if (mapEditor_save())
-                    confirmed = true;
-                else
-                    showSaveFailedError = true; // stay in the dialog -- never silently lose the unsaved doc
+                // See mapEditor_ensureNamed -- a never-saved doc needs a name/author first. Cancelling
+                // that prompt just stays in this dialog too, same as a cancelled S here always has.
+                if (mapEditor_ensureNamed(quitFlag)) {
+                    if (mapEditor_save())
+                        confirmed = true;
+                    else
+                        showSaveFailedError = true; // stay in the dialog -- never silently lose the unsaved doc
+                }
                 break;
             case KEY_D:
                 mapEditorState.dirty = false;
@@ -1304,13 +1434,17 @@ bool GuiClient::mapEditor_confirmDiscardDialog(volatile bool* quitFlag) throw ()
 
 // Self-contained map viewer/editor (Phase 2 built the read-only viewer; Phase 3 -- see TODO.md and
 // the plan file -- adds the Select/WallRect/GroundRect/Flag/Spawn tools, mouse drag editing, and
-// Ctrl+S save). Modeled on language_selection_start() above, but this isn't a Menu -- there's no
-// openMenus.empty() to loop on, so it gets its own exit flag -- and it additionally polls the
-// mouse and shows a cursor (the first show_mouse() call site anywhere in this codebase).
-void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
+// Ctrl+S save; the "Menu navigation" restructuring adds Ctrl+O, a stand-in for the not-yet-built
+// Map > Open menu item). Modeled on language_selection_start() above, but this isn't a Menu --
+// there's no openMenus.empty() to loop on, so it gets its own exit flag -- and it additionally
+// polls the mouse and shows a cursor (the first show_mouse() call site anywhere in this codebase).
+// Returns true if the user pressed Ctrl+O (caller should show the picker next); false if Escape
+// (caller returns to the main menu).
+bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
     log("mapEditor_start()");
 
     bool exitRequested = false;
+    bool wantOpenPicker = false; // Ctrl+O vs. Escape -- see this function's own return value comment
     show_mouse(graphics.drawbuffer());
 
     MapEditorTool tool = MET_Select;
@@ -1344,8 +1478,20 @@ void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 if (drag.mode != MapEditorDrag::None)
                     drag.mode = MapEditorDrag::None; // cancel the in-progress drag, don't exit
                 else if (!mapEditorState.dirty || mapEditor_confirmDiscardDialog(quitFlag))
-                    exitRequested = true; // clean, or the user chose Save/Discard -- either way, go back to the picker
+                    exitRequested = true; // clean, or the user chose Save/Discard -- either way, go back to the main menu
                 // else: Cancel -- exitRequested stays false, editor stays open, nothing else changes
+            }
+            else if (sc == KEY_O && controlPressed) {
+                // Stand-in for the not-yet-built "Map > Open" menu item (see the plan file) -- same
+                // drag-cancel-first guard and dirty-check as Escape just above, just a different
+                // destination (the picker, not the main menu) once confirmed.
+                if (drag.mode != MapEditorDrag::None)
+                    drag.mode = MapEditorDrag::None;
+                else if (!mapEditorState.dirty || mapEditor_confirmDiscardDialog(quitFlag)) {
+                    exitRequested = true;
+                    wantOpenPicker = true;
+                }
+                // else: Cancel -- stays in the editor, same as Escape's Cancel case above
             }
             else if (sc == KEY_LEFT)
                 mapEditorState.panRoom.x = positiveModulo(mapEditorState.panRoom.x - 1, map.w);
@@ -1457,8 +1603,12 @@ void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                     }
                 }
             }
-            else if (sc == KEY_S && controlPressed)
-                statusMessage = mapEditor_save() ? _("Saved.") : _("Save failed.");
+            else if (sc == KEY_S && controlPressed) {
+                // A never-saved doc needs a name/author first -- see mapEditor_ensureNamed. Cancelling
+                // that prompt leaves statusMessage untouched (nothing happened, no error to report).
+                if (mapEditor_ensureNamed(quitFlag))
+                    statusMessage = mapEditor_save() ? _("Saved.") : _("Save failed.");
+            }
         }
 
         // Mouse press/drag/release -- see the plan file's "drag/mouse state machine" section. Edge
@@ -1747,16 +1897,14 @@ void GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
     // With page flipping, drawbuf alternates between two physical video pages each draw_screen()
     // call (see Graphics::draw_screen, graphics.cpp) -- one post-viewer menu frame only refreshes
     // whichever page is current, leaving this viewer's last frame (e.g. its now-stale minimap
-    // thumbnail) visible on the other page until something else happens to flip back to it. Two
-    // extra blank-background frames here (layout is already back to normal -- nothing here touches
-    // show_minimap/make_layout) cover both pages before control returns to the caller's showMenu().
-    for (int i = 0; i < 2; ++i) {
-        graphics.startDraw();
-        graphics.draw_background(false);
-        graphics.endDraw();
-        graphics.draw_screen(false);
-    }
+    // thumbnail) visible on the other page until something else happens to flip back to it.
+    // mapEditor_drainToMainMenu()'s two blank-background frames (layout is already back to normal --
+    // nothing here touches show_minimap/make_layout) cover both pages before control returns to the
+    // caller -- harmless even when wantOpenPicker is true and the caller loops straight into the
+    // picker instead of the main menu (see mapEditor_pickerScreen()'s own comment on this).
+    mapEditor_drainToMainMenu();
     show_mouse(NULL);
+    return wantOpenPicker;
 }
 
 // incoming chunk of requested file by UDP
@@ -5880,27 +6028,36 @@ void GuiClient::MCF_prepareReplayMenu() throw () {
     saveReplayCache(replays);
 }
 
-// Loops between the picker and the viewer for as long as the user keeps bouncing between them --
-// Escape from the viewer (mapEditor_start()) now goes back to the picker instead of unwinding all
-// the way out (see the plan file), so this needs an explicit loop rather than the old "call one or
-// the other once" logic. An explicit loop (rather than having the two functions tail-call each
-// other) avoids unbounded call-stack growth across many picker<->viewer round-trips in one long
-// session. If a map was already opened earlier this run, skip the picker and resume the viewer
-// directly, exactly like before.
+// First entry this run (see the plan file's "Menu navigation" restructuring): no map open yet, so
+// go straight into a blank 3x3 "new" map with no dialog at all -- the level chooser moves to
+// Ctrl+O inside the viewer below, a stand-in for the not-yet-built Map > Open menu item, and the
+// New Map dialog itself (still used from Ctrl+N inside the picker) is skipped here entirely rather
+// than shown with pre-filled defaults, per request: opening the editor should be a single keypress.
 void GuiClient::MCF_openMapEditorItem() throw () {
-    bool inPicker = !mapEditorState.everOpened;
+    if (!mapEditorState.everOpened)
+        mapEditor_populateNewMap(3, 3, "new"); // default map data (title, not UI text) -- not translated, same as any other map's stored title
+
+    // Loop between the viewer and the picker for as long as the user keeps pressing Ctrl+O to open
+    // a different map -- an explicit loop (rather than having the two functions tail-call each
+    // other) avoids unbounded call-stack growth across many round-trips in one long session.
     for (;;) {
-        if (inPicker) {
-            if (!mapEditor_pickerScreen(m_quitFlag))
-                return; // escaped to the main menu, or the process is quitting
-            inPicker = false;
-        }
-        else {
-            mapEditor_start(m_quitFlag);
-            if (quitCommand || *m_quitFlag)
-                return; // quitting mid-viewer (Ctrl+F12 or window close)
-            inPicker = true; // Escape from the viewer -- go back to the picker
-        }
+        const bool wantOpenPicker = mapEditor_start(m_quitFlag);
+        if (quitCommand || *m_quitFlag)
+            return; // quitting mid-viewer (Ctrl+F12 or window close)
+        if (!wantOpenPicker)
+            return; // Escape -- back to the main menu
+
+        mapEditor_pickerScreen(m_quitFlag); // opens a different map, or is cancelled -- see below either way
+        if (quitCommand || *m_quitFlag)
+            return;
+        if (!mapEditorState.everOpened)
+            // Ctrl+O led to Discard (mapEditor_confirmDiscardDialog resets everOpened -- see its own
+            // comment) and the picker was then cancelled without picking a replacement: the in-memory
+            // doc is the exact content the user just chose to discard, so there's nothing safe to
+            // resume -- go back to the main menu instead of looping into the viewer with it.
+            return;
+        // Otherwise loop back into the viewer, either with the newly opened map, or the same one as
+        // before (a clean Ctrl+O, or one resolved via Save, both leave the doc trustworthy either way).
     }
 }
 

@@ -5,7 +5,7 @@
 
 - In the map editor main screen, there are a redraw issues on the top and right sides outside the main map. Hovering the mouse over these areas leaves ghost mouse cursors artifacts sometimes. Hovering over the main map near the right side, the mouse stats text such as "room 1,0  (28x262)" leaves artifacts and ghost text on the minimap and the area below it.
 
-- Map version number needs to be changed in the bug report policy screen, where it remains unchanged.
+- ~~Map version number needs to be changed in the bug report policy screen, where it remains unchanged.~~
 
 
 ## Map selection tweaks
@@ -16,7 +16,7 @@
 # Features
 
 ## Menu navigation
-Change the menu navigation steps for the map editor. Currently we press 7 from the main menu and go into the map selection screen, but let's change this. Instead, go from the main menu directly into the editor and a new map. The level chooser screen will be moved into the Map > Open screen which hasn't been created yet.
+~~Change the menu navigation steps for the map editor. Currently we press 7 from the main menu and go into the map selection screen, but let's change this. Instead, go from the main menu directly into the editor and a new map. The level chooser screen will be moved into the Map > Open screen which hasn't been created yet.~~
 
 ## Map editor tweaks
 Some of these may already exist in later phases, but these items can be addressed in whichever phase they make the most sense.
@@ -135,6 +135,94 @@ Some of these may already exist in later phases, but these items can be addresse
 
 
 # Done
+
+- ~~Map version number needs to be changed in the bug report policy
+  screen, where it remains unchanged~~: root cause was in the data, not
+  the code -- `GuiClient::addSplashLine()` (`guiclient.cpp`) already
+  substitutes `@VERSION@`/`@YEAR@` placeholder tokens with the live
+  `getVersionString()`/`GAME_COPYRIGHT_YEAR` for every line loaded from
+  `languages/splash.<lang>.txt`, but the shipped files had the version
+  hand-baked as a literal `Outgun 1.0.3 r617M, copyright (c) 2002-2010
+  ...` instead of the placeholders, so there was nothing for the
+  substitution to find. Fixed by restoring the placeholder tokens in
+  `splash.en.txt`, `.fi.txt`, `.it.txt`, and `.ptBR.txt` (each file's own
+  wording otherwise untouched) -- no C++ changes needed.
+
+- ~~Menu navigation: pressing 7 from the main menu goes directly into the
+  editor with a new map, instead of the map selection screen~~: the level
+  chooser (the Phase 2.5 picker, `mapEditor_pickerScreen()`) is no longer
+  the map editor's landing screen. `MCF_openMapEditorItem()` now enters the
+  editor directly on first entry each run with a default blank 3x3 map
+  titled "new" (`mapEditor_populateNewMap()`, factored out of the picker's
+  own Ctrl+N population logic so both call sites share it) -- no dialog
+  and no picker, a single keypress per request. The "New map" dialog
+  (`mapEditor_newMapDialog()`) still exists for Ctrl+N inside the picker
+  (see below), just no longer on this path; its three fields were also
+  reordered to Title/Width/Height (title first and focused by default, so
+  typing a name needs no navigation first, per request).
+
+  Since "Map > Open" (the real destination the TODO note asked for)
+  doesn't exist yet -- it's part of the separate, much larger, still-
+  deferred top-menu-bar feature -- the picker keeps working as a modal
+  dialog, now reached via a new `Ctrl+O` shortcut inside the editor
+  (`mapEditor_start()`, same `controlPressed` idiom as the existing
+  `Ctrl+S`), so opening an existing map isn't lost in the meantime.
+  `mapEditor_start()` changed from `void` to `bool`: `true` means Ctrl+O
+  was confirmed (caller shows the picker next), `false` means Escape
+  (caller returns to the main menu) -- mirroring the `mapEditor_pickerScreen`
+  void->bool precedent from the Escape-to-picker phase. `MCF_openMapEditorItem()`
+  loops between the two on `true`.
+
+  One real correctness subtlety surfaced by this restructuring:
+  `mapEditor_confirmDiscardDialog()`'s Discard branch only ever clears the
+  dirty flag and resets `everOpened = false` -- it never reverts
+  `doc`/`renderMap` -- because the *old* flow always forced Escape
+  straight back into the picker, which unconditionally overwrites `doc`
+  the moment anything is opened, so the discarded content was never
+  reachable again. `Ctrl+O` breaks that guarantee: discarding, then
+  cancelling the picker instead of picking a replacement, would otherwise
+  silently resume the exact edits just discarded. Fixed by having
+  `MCF_openMapEditorItem()` check `mapEditorState.everOpened` after the
+  picker call returns -- Discard's existing reset is reused as the exact
+  signal needed (no new state): if it's `false`, go to the main menu
+  instead of looping back into the viewer; a clean or just-saved doc
+  leaves it `true`, so cancelling the picker safely resumes it.
+
+  Full clean rebuild (`outgun`, `outgun-ded`) and `mapeditor_roundtrip`
+  (47/47, unaffected -- this doesn't touch the document model) verified.
+  The actual navigation flow (direct entry on first "7", Ctrl+O opening
+  the picker, and especially the Discard -> picker -> Escape -> main menu
+  correctness case above) is UI/menu behavior verified manually rather
+  than by screenshot automation -- see the checklist handed off alongside
+  this change.
+
+- ~~Map editor: prompt for name and author on a map's first save instead
+  of silently saving under the default "new" title~~: follow-up to the
+  entry above -- since opening the editor no longer asks for a title up
+  front, saving needs to ask once instead. New `MapEditorState::everSaved`
+  (true once a doc has been written to disk, or was opened from an
+  existing file, or was created via the picker's own Ctrl+N, which already
+  collected a deliberate title through its own dialog) gates a new
+  `mapEditor_saveAsDialog()` (Title + Author only, modeled on the New Map
+  dialog but without width/height, title first and focused by default) via
+  a new `mapEditor_ensureNamed()` helper, called before every actual
+  `mapEditor_save()` (both the editor's own Ctrl+S and the unsaved-changes
+  dialog's Save option). The dialog's title field starts deliberately
+  blank (not pre-filled with the "new" default -- per feedback, don't
+  presume it's wanted), author starts blank too. Confirming applies the
+  title/author to `doc` and recomputes `mapEditorState.mapName` from the
+  new title (the same sanitize/uniquify logic `mapEditor_populateNewMap`
+  already uses), so the saved filename reflects what was actually typed
+  rather than staying "new.txt" forever; cancelling the prompt leaves the
+  doc untouched and the caller's own Save action simply doesn't happen (no
+  error, since nothing failed). Once `everSaved` is true, every later save
+  goes straight through with no prompt, exactly as before this change.
+
+  Full clean rebuild and `mapeditor_roundtrip` (47/47, unaffected) verified
+  each round; the dialog's own behavior (blank on first appearance, saved
+  filename matches the entered title, no re-prompt on subsequent saves,
+  Ctrl+N-created and existing-file maps never see it) was manually
+  confirmed working, including this blank-title follow-up fix.
 
 - ~~Map editor: make the map boundary outline thicker (2px instead of 1px)~~:
   follow-up to the opacity change below -- the 80%-opacity top/left edge

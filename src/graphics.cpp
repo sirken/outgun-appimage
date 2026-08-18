@@ -2354,17 +2354,58 @@ void Graphics::draw_mapeditor_newmap_dialog(int width, int height, const string&
 
     if (focusField == 0)
         rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
-    textout_ex(drawbuf, font, _("Width (rooms): $1", itoa(width)).c_str(), labelX, y, colour[Colour::menu_value], -1);
+    textout_ex(drawbuf, font, (_("Title: ") + title + "_").c_str(), labelX, y, colour[Colour::menu_value], -1);
     y += lineH;
 
     if (focusField == 1)
         rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
-    textout_ex(drawbuf, font, _("Height (rooms): $1", itoa(height)).c_str(), labelX, y, colour[Colour::menu_value], -1);
+    textout_ex(drawbuf, font, _("Width (rooms): $1", itoa(width)).c_str(), labelX, y, colour[Colour::menu_value], -1);
     y += lineH;
 
     if (focusField == 2)
         rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
+    textout_ex(drawbuf, font, _("Height (rooms): $1", itoa(height)).c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+
+    if (showTitleRequiredError) {
+        y += 4;
+        textout_ex(drawbuf, font, _("Title required").c_str(), labelX, y, colour[Colour::message_warning], -1);
+    }
+}
+
+// "Save map" dialog (GuiClient::mapEditor_saveAsDialog): prompts for title + author the first time
+// a map is saved -- see the plan file. Same shape as draw_mapeditor_newmap_dialog just above, minus
+// the width/height fields (a save prompt isn't the place to resize an in-progress map).
+void Graphics::draw_mapeditor_saveas_dialog(const string& title, const string& author, int focusField, bool showTitleRequiredError) throw () {
+    solid_mode();
+    set_clip_rect(drawbuf, 0, 0, drawbuf->w - 1, drawbuf->h - 1);
+    rectfill(drawbuf, 0, 0, SCREEN_W - 1, SCREEN_H - 1, colour[Colour::screen_background]);
+
+    const int lineH = text_height(font) + 4;
+    const int boxW = max(280, text_length(font, _("Author: ")) + text_length(font, "MMMMMMMMMMMMMMMMMMMMMMMM"));
+    const int boxH = lineH * 4 + (showTitleRequiredError ? lineH : 0) + 20;
+    const int x1 = (SCREEN_W - boxW) / 2;
+    const int y1 = (SCREEN_H - boxH) / 2;
+    const int x2 = x1 + boxW;
+    const int y2 = y1 + boxH;
+
+    rectfill(drawbuf, x1, y1, x2, y2, colour[Colour::menu_background]);
+    rect(drawbuf, x1, y1, x2, y2, colour[Colour::menu_border_highlight]);
+
+    textout_centre_ex(drawbuf, font, _("Save map").c_str(), (x1 + x2) / 2, y1 + 8, colour[Colour::menu_caption], -1);
+
+    int y = y1 + 8 + 2 * lineH;
+    const int labelX = x1 + 16;
+    const int rowX1 = x1 + 8, rowX2 = x2 - 8;
+
+    if (focusField == 0)
+        rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
     textout_ex(drawbuf, font, (_("Title: ") + title + "_").c_str(), labelX, y, colour[Colour::menu_value], -1);
+    y += lineH;
+
+    if (focusField == 1)
+        rectfill(drawbuf, rowX1, y - 2, rowX2, y + lineH - 2, colour[Colour::menu_caption_bg]);
+    textout_ex(drawbuf, font, (_("Author: ") + author + "_").c_str(), labelX, y, colour[Colour::menu_value], -1);
     y += lineH;
 
     if (showTitleRequiredError) {
