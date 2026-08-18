@@ -15,7 +15,7 @@
 
 # Features
 
-
+## Menu navigation
 Change the menu navigation steps for the map editor. Currently we press 7 from the main menu and go into the map selection screen, but let's change this. Instead, go from the main menu directly into the editor and a new map. The level chooser screen will be moved into the Map > Open screen which hasn't been created yet.
 
 ## Map editor tweaks
