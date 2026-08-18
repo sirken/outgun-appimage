@@ -64,8 +64,8 @@ command -v allegro-config >/dev/null 2>&1 || die "allegro-config not found. Inst
 log "Building Outgun (client + dedicated server)..."
 DEVBUILD_MAKEARG=""
 [ "$DEV_BUILD" = "1" ] && DEVBUILD_MAKEARG="DEVBUILD=1"
-make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 clean
-make -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 $DEVBUILD_MAKEARG outgun outgun-ded
+make -j $(nproc) -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 clean
+make -j $(nproc) -C "$REPO_ROOT/src" -f Makefile.common LINUX=1 $DEVBUILD_MAKEARG outgun outgun-ded
 
 # -- 3. Assemble the release directory --
 
