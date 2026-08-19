@@ -5,6 +5,11 @@
 
 - In the map editor main screen, there are a redraw issues on the top and right sides outside the main map. Hovering the mouse over these areas leaves ghost mouse cursors artifacts sometimes. Hovering over the main map near the right side, the mouse stats text such as "room 1,0  (28x262)" leaves artifacts and ghost text on the minimap and the area below it.
 
+- ~~Let's look at the map boundary size. The map boundary outline that we changed from 1px to 2px shows thicker on the top and left, but some map sizes show it barely or not at all on the right and bottom. 1x1 doesn't show it at all on the right and bottom. 2x2 has it thin on the right and bottom. 3x3 it looks ok. I both 2x2 and 3x3 when you shift so the map boundaries are in the middle of the screen somewhere, you can see the boundary is slightly offset (probably 1px) down and right. The 2px red lines are not exactly centered in the walls.~~
+
+
+- When you start a server by pressing 4, 5, 6, and then exit the server and go directly to the map editor, the last server map is shown in the minimap and does not match the map open in the editor. As soon as you make a change that triggers a minimap update, then the preview changes. 
+
 - ~~Map version number needs to be changed in the bug report policy screen, where it remains unchanged.~~
 
 
@@ -135,6 +140,38 @@ Some of these may already exist in later phases, but these items can be addresse
 
 
 # Done
+
+- ~~Let's look at the map boundary size...~~: two real problems, both
+  fixed. (1) The bottom/right edge of the map's last row/column had no
+  next-room-over to draw it, so it relied on the wraparound-repeat
+  rendering happening to draw a leftover sliver of the wrapped room past
+  the edge -- unreliable by construction (depends on the current zoom/
+  map-size combination, not anything guaranteed): a 1x1 map showed no
+  boundary there at all, 2x2 showed a thin partial line, 3x3 happened to
+  show enough. Fixed by having the room at the map's actual last column/
+  row (`roomy == map.h - 1` / `roomx == map.w - 1`) explicitly draw its
+  own right/bottom edge too (`Graphics::drawRoomBackground`,
+  `graphics.cpp`) -- deterministic regardless of zoom or map size, and
+  never conflicts with the existing top/left internal-seam coverage since
+  it only fires for the true outer edge. (2) The "not centered, offset
+  ~1px down-right" perception traced to not being a coordinate bug at all
+  -- room tiling (`RoomLayoutManager`) uses exact, uniform integer
+  spacing with no accumulated drift between rooms. It's an inherent
+  consequence of the thickening direction: the extra pixel can only be
+  added inward (down for a top edge, right for a left edge), since
+  drawing outside a room's own cached bitmap isn't possible -- matches
+  the reported bias exactly (always down-right, never random). Per
+  feedback, resolved not by chasing true bidirectional centering (would
+  need every room to also draw its own bottom/right edge at 1px so an
+  internal seam gets exactly 1px from each neighboring room, a much more
+  invasive change) but by dropping the true-edge opacity from 80% to the
+  same 40% as the rest of the grid (2px at 80% covered too much of the
+  actual wall underneath) -- the map's true edge is now distinguished
+  from a regular internal seam by thickness alone (2px vs 1px), not
+  opacity.
+
+  Full clean rebuild and `mapeditor_roundtrip` (47/47, unaffected)
+  verified.
 
 - ~~Map editor Phase 4: generalize Select-tool support to any wall shape,
   add a Circle wall/ground tool~~: fixes a latent gap where pre-existing

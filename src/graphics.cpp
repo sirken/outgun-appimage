@@ -643,23 +643,39 @@ void Graphics::drawRoomBackground(BITMAP* roombg, const Map& map, int roomx, int
         for (int x = 1; x < 16; ++x)
             vline(roombg, pf_scale(plw * x / 16.), 0, roombg->h - 1, x == 8 ? colour[Colour::map_info_grid_main] : colour[Colour::map_info_grid]);
 
-        // Room boundary: drawn once per room, its top+left edge only -- the bottom/right edges of
-        // the map's last row/column are covered by the next room wrapping around and drawing its
-        // own top/left edge there, the same wraparound trick repeatMapX/Y panning already relies on
-        // elsewhere. A room at roomy==0 (top edge) or roomx==0 (left edge) is drawing the *actual*
-        // edge of the map data, not just an internal room-to-room seam -- keep those noticeably
-        // brighter (80%) than the regular internal boundaries (40%, same as the rest of the grid),
-        // and 2px thick (the extra px drawn one pixel inward) instead of 1px, so the map's true
-        // edge stays clearly visible even after panning it away from the screen's own edge (see
-        // TODO.md's "Map editor tweaks").
-        set_trans_mode(roomy == 0 ? 204 : 102); // 255 * .80 / .40, rounded
+        // Room boundary: every room draws its own top+left edge, which reliably covers every
+        // internal room-to-room seam exactly once (the room below/right of a seam draws it) and
+        // also happens to cover the map's own top/left edge (roomy==0 / roomx==0 is simultaneously
+        // an internal-seam-style edge and the true edge of the map data there). The true map edge
+        // is kept visually distinct from a regular internal seam by THICKNESS (2px, the extra px
+        // drawn one pixel inward since drawing outside this room's own bitmap isn't possible)
+        // rather than opacity -- both are the same 40% as the rest of the grid (a full 80% at 2px
+        // thick covered too much of the actual wall underneath; see TODO.md's "Map editor tweaks").
+        //
+        // The bottom/right edge of the map's LAST row/column has no such next-room-over to draw it
+        // -- previously this relied on the wraparound-repeat rendering (repeatMapX/Y) happening to
+        // draw a sliver of the wrapped-around room past the edge, which is unreliable: whether any
+        // such sliver is visible at all (and how wide it is) depends on the current zoom/map-size
+        // combination, not on anything guaranteed. A 1x1 map showed no boundary there whatsoever; a
+        // 2x2 map showed a thin partial line. Fixed by having the room at the map's own last
+        // column/row explicitly draw its OWN right/bottom edge too, same 2px/40% treatment --
+        // deterministic regardless of zoom or map size. This never conflicts with the top/left
+        // internal-seam coverage above since it only fires for the true outer edge.
+        set_trans_mode(102); // 255 * .40, rounded -- same opacity as the rest of the grid; see above
         hline(roombg, 0, 0, roombg->w - 1, colour[Colour::map_info_grid_room]);
         if (roomy == 0)
             hline(roombg, 0, 1, roombg->w - 1, colour[Colour::map_info_grid_room]);
-        set_trans_mode(roomx == 0 ? 204 : 102);
         vline(roombg, 0, 0, roombg->h - 1, colour[Colour::map_info_grid_room]);
         if (roomx == 0)
             vline(roombg, 1, 0, roombg->h - 1, colour[Colour::map_info_grid_room]);
+        if (roomy == map.h - 1) {
+            hline(roombg, 0, roombg->h - 1, roombg->w - 1, colour[Colour::map_info_grid_room]);
+            hline(roombg, 0, roombg->h - 2, roombg->w - 1, colour[Colour::map_info_grid_room]);
+        }
+        if (roomx == map.w - 1) {
+            vline(roombg, roombg->w - 1, 0, roombg->h - 1, colour[Colour::map_info_grid_room]);
+            vline(roombg, roombg->w - 2, 0, roombg->h - 1, colour[Colour::map_info_grid_room]);
+        }
         solid_mode();
     }
     if (TEST_FALL_ON_WALL)
