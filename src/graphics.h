@@ -125,14 +125,32 @@ struct MapEditorOverlayPoint {
     MapEditorOverlayPoint() throw () : roomX(0), roomY(0), x(0), y(0) { }
     MapEditorOverlayPoint(int roomX_, int roomY_, double x_, double y_) throw () : roomX(roomX_), roomY(roomY_), x(x_), y(y_) { }
 };
+// Phase 4 (triangle/circle Select-tool support + the Circle tool, see TODO.md and the plan file):
+// same room-local-geometry idea as the two structs above, one per additional shape kind.
+struct MapEditorOverlayCirc {
+    int roomX, roomY;
+    double x, y, radius;
+    MapEditorOverlayCirc() throw () : roomX(0), roomY(0), x(0), y(0), radius(0) { }
+    MapEditorOverlayCirc(int roomX_, int roomY_, double x_, double y_, double radius_) throw ()
+        : roomX(roomX_), roomY(roomY_), x(x_), y(y_), radius(radius_) { }
+};
+struct MapEditorOverlayTri {
+    int roomX, roomY;
+    double x1, y1, x2, y2, x3, y3;
+    MapEditorOverlayTri() throw () : roomX(0), roomY(0), x1(0), y1(0), x2(0), y2(0), x3(0), y3(0) { }
+    MapEditorOverlayTri(int roomX_, int roomY_, double x1_, double y1_, double x2_, double y2_, double x3_, double y3_) throw ()
+        : roomX(roomX_), roomY(roomY_), x1(x1_), y1(y1_), x2(x2_), y2(y2_), x3(x3_), y3(y3_) { }
+};
 
-// Result of Graphics::mapEditorHitTest -- which candidate (if any) a screen click landed on. Rects
-// are checked before points (the caller pre-orders each list -- walls before ground within rects,
-// flags before spawns within points -- so "rects checked first" alone gives the full documented
-// walls -> ground -> flags -> spawns tie-break).
+// Result of Graphics::mapEditorHitTest -- which candidate (if any) a screen click landed on. Rects,
+// circs, and tris are all checked before points (the caller pre-orders each list -- walls before
+// ground within each shape-kind list, flags before spawns within points -- so "shapes checked
+// before points" gives the documented walls -> ground -> flags -> spawns tie-break within a shape
+// kind; across different shape kinds sharing a screen pixel, the fixed rects -> circs -> tris check
+// order is an accepted simplification, see mapEditor_buildHitCandidates's own comment).
 struct MapEditorHitResult {
-    enum Kind { None, Rect, Point } kind;
-    int index; // index into whichever of the caller's rects/points lists matched; -1 if kind == None
+    enum Kind { None, Rect, Point, Circ, Tri } kind;
+    int index; // index into whichever of the caller's rects/circs/tris/points lists matched; -1 if kind == None
     MapEditorHitResult() throw () : kind(None), index(-1) { }
 };
 
@@ -343,26 +361,37 @@ public:
     // right now, returns an "unknown" WorldCoords (shouldn't normally happen mid-drag).
     WorldCoords screenToWorldClampedToRoom(int screenX, int screenY, RoomCoords room) const throw () { return roomLayout.screenToWorldClampedToRoom(screenX, screenY, room); }
 
-    // Select-tool hit-testing: which candidate (if any) a screen click landed on. 'rects' and
-    // 'points' must already be caller-ordered by priority (walls before ground; flags before
-    // spawns) -- rects are checked first, in order, then points, in order, giving the documented
-    // walls -> ground -> flags -> spawns tie-break with no extra bookkeeping here.
-    MapEditorHitResult mapEditorHitTest(int screenX, int screenY, const std::vector<MapEditorOverlayRect>& rects, const std::vector<MapEditorOverlayPoint>& points) const throw ();
+    // Select-tool hit-testing: which candidate (if any) a screen click landed on. 'rects'/'circs'/
+    // 'tris'/'points' must already be caller-ordered by priority (walls before ground; flags before
+    // spawns) -- rects are checked first, in order, then circs, then tris, then points, giving the
+    // documented walls -> ground -> flags -> spawns tie-break within one shape kind (see
+    // MapEditorHitResult's own comment for the accepted cross-shape-kind simplification).
+    MapEditorHitResult mapEditorHitTest(int screenX, int screenY, const std::vector<MapEditorOverlayRect>& rects,
+                                         const std::vector<MapEditorOverlayCirc>& circs, const std::vector<MapEditorOverlayTri>& tris,
+                                         const std::vector<MapEditorOverlayPoint>& points) const throw ();
 
     // Whether a screen click landed near one of 'rect's 4 corners (used only for the already-
     // selected shape, to decide whether a press starts a resize-corner drag instead of a move).
     // Returns -1 for no corner, else 0=(x1,y1) 1=(x2,y1) 2=(x1,y2) 3=(x2,y2).
     int mapEditorHitTestCorner(int screenX, int screenY, const MapEditorOverlayRect& rect) const throw ();
 
+    // The circle analogue of mapEditorHitTestCorner: whether a screen click landed near the one
+    // resize handle a circle gets, a point at world angle 0 (i.e. (center.x + radius, center.y)) --
+    // same "used only for the already-selected shape" precedent, just a single handle instead of 4
+    // corners since a circle has only one degree of freedom (radius) to resize.
+    bool mapEditorHitTestCircEdge(int screenX, int screenY, const MapEditorOverlayCirc& circ) const throw ();
+
     // Draws the editing overlay for one frame: a status line (tool/texture/team/save-or-error
     // message, pre-formatted by the caller -- same "Graphics draws, guiclient formats" convention
     // as draw_mapeditor_overlay above), the rubber-band preview of an in-progress drag (at most one
-    // of previewRect/previewPoint is non-NULL at a time), and an outline around the current
-    // selection, if any (at most one of selectedRect/selectedPoint non-NULL). Any pointer may be
-    // NULL to mean "nothing to draw there".
+    // of previewRect/previewCirc/previewTri/previewPoint is non-NULL at a time), and an outline
+    // around the current selection, if any (at most one of selectedRect/selectedCirc/selectedTri/
+    // selectedPoint non-NULL). Any pointer may be NULL to mean "nothing to draw there".
     void draw_mapeditor_edit_overlay(const std::string& statusLine,
-                                      const MapEditorOverlayRect* previewRect, const MapEditorOverlayPoint* previewPoint,
-                                      const MapEditorOverlayRect* selectedRect, const MapEditorOverlayPoint* selectedPoint) throw ();
+                                      const MapEditorOverlayRect* previewRect, const MapEditorOverlayCirc* previewCirc,
+                                      const MapEditorOverlayTri* previewTri, const MapEditorOverlayPoint* previewPoint,
+                                      const MapEditorOverlayRect* selectedRect, const MapEditorOverlayCirc* selectedCirc,
+                                      const MapEditorOverlayTri* selectedTri, const MapEditorOverlayPoint* selectedPoint) throw ();
 
     // Draws the "New map" dialog (width/height/title prompt shown before mapEditor_start() opens a
     // blank map -- see GuiClient::mapEditor_newMapDialog). focusField: 0=width, 1=height, 2=title.
@@ -417,6 +446,8 @@ private:
     // more than once (see the plan file).
     bool projectMapEditorPoint(int roomX, int roomY, double x, double y, int& outX, int& outY) const throw ();
     void drawMapEditorRectOutline(const MapEditorOverlayRect& r, int col) throw ();
+    void drawMapEditorCircOutline(const MapEditorOverlayCirc& c, int col) throw ();
+    void drawMapEditorTriOutline(const MapEditorOverlayTri& t, int col) throw ();
 
     void draw_player_statistics(const FONT* stfont, const ClientPlayer& player, int x, int y, int page, int time) throw ();
 

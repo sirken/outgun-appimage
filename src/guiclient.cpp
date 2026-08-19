@@ -1238,7 +1238,7 @@ bool GuiClient::mapEditor_pickerScreen(volatile bool* quitFlag) throw () {
 // be used as a parameter of another (non-member, non-local) function, and these are shared between
 // mapEditor_start()'s own key/mouse handling and the small helper functions right below.
 
-enum MapEditorTool { MET_Select, MET_WallRect, MET_GroundRect, MET_Flag, MET_Spawn };
+enum MapEditorTool { MET_Select, MET_WallRect, MET_GroundRect, MET_Flag, MET_Spawn, MET_WallCirc, MET_GroundCirc };
 
 struct MapEditorSelection {
     enum Kind { None, Wall, Ground, Flag, Spawn } kind;
@@ -1249,7 +1249,10 @@ struct MapEditorSelection {
 };
 
 struct MapEditorDrag {
-    enum Mode { None, NewRect, NewPoint, Move, Resize } mode;
+    // NewCirc/ResizeCirc are distinct modes rather than overloading NewRect/Resize's meaning for a
+    // circle -- see the plan file's rationale (keeps 'corner' unambiguous, keeps this switch/mode
+    // self-documenting instead of needing the selected shape's concrete type re-derived to interpret it).
+    enum Mode { None, NewRect, NewPoint, Move, Resize, NewCirc, ResizeCirc } mode;
     RoomCoords room;
     double startX, startY; // room-local, at press
     double curX, curY;     // room-local, updated every frame while dragging
@@ -1264,6 +1267,18 @@ struct MapEditorHitCandidates {
     vector<MapEditorOverlayRect> rects;
     vector<bool> rectIsGround;
     vector<int> rectOrigIndex;
+    // Phase 4 (see TODO.md and the plan file): parallel triplets for circle/triangle walls, mirroring
+    // the rects triplet above exactly. Accepted simplification: "walls before ground" only holds
+    // within one shape kind now, not perfectly across rect/circ/tri when different-typed shapes
+    // visually overlap on screen (see Graphics::mapEditorHitTest's own comment) -- a fully general
+    // fix would need a single tagged-union candidate list, which this codebase avoids in favor of
+    // explicit parallel structures.
+    vector<MapEditorOverlayCirc> circs;
+    vector<bool> circIsGround;
+    vector<int> circOrigIndex;
+    vector<MapEditorOverlayTri> tris;
+    vector<bool> triIsGround;
+    vector<int> triOrigIndex;
     vector<MapEditorOverlayPoint> points;
     vector<bool> pointIsSpawn;
     vector<int> pointTeam; // 0/1/2 for flags (2=wild), 0/1 for spawns
@@ -1272,21 +1287,47 @@ struct MapEditorHitCandidates {
 
 static void mapEditor_buildHitCandidates(EditorMap& doc, RoomCoords room, MapEditorHitCandidates& out) throw () {
     out.rects.clear(); out.rectIsGround.clear(); out.rectOrigIndex.clear();
+    out.circs.clear(); out.circIsGround.clear(); out.circOrigIndex.clear();
+    out.tris.clear(); out.triIsGround.clear(); out.triOrigIndex.clear();
     out.points.clear(); out.pointIsSpawn.clear(); out.pointTeam.clear(); out.pointOrigIndex.clear();
 
     EditorRoom& r = doc.room(room.x, room.y);
-    for (size_t i = 0; i < r.wallCount(); ++i)
-        if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(&r.wallAt(i))) {
+    for (size_t i = 0; i < r.wallCount(); ++i) {
+        EditorWall& w = r.wallAt(i);
+        if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(&w)) {
             out.rects.push_back(MapEditorOverlayRect(room.x, room.y, rw->x1, rw->y1, rw->x2, rw->y2));
             out.rectIsGround.push_back(false);
             out.rectOrigIndex.push_back(static_cast<int>(i));
         }
-    for (size_t i = 0; i < r.groundCount(); ++i)
-        if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(&r.groundAt(i))) {
+        else if (EditorCircWall* cw = dynamic_cast<EditorCircWall*>(&w)) {
+            out.circs.push_back(MapEditorOverlayCirc(room.x, room.y, cw->x, cw->y, cw->radiusOuter));
+            out.circIsGround.push_back(false);
+            out.circOrigIndex.push_back(static_cast<int>(i));
+        }
+        else if (EditorTriWall* tw = dynamic_cast<EditorTriWall*>(&w)) {
+            out.tris.push_back(MapEditorOverlayTri(room.x, room.y, tw->x1, tw->y1, tw->x2, tw->y2, tw->x3, tw->y3));
+            out.triIsGround.push_back(false);
+            out.triOrigIndex.push_back(static_cast<int>(i));
+        }
+    }
+    for (size_t i = 0; i < r.groundCount(); ++i) {
+        EditorWall& w = r.groundAt(i);
+        if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(&w)) {
             out.rects.push_back(MapEditorOverlayRect(room.x, room.y, rw->x1, rw->y1, rw->x2, rw->y2));
             out.rectIsGround.push_back(true);
             out.rectOrigIndex.push_back(static_cast<int>(i));
         }
+        else if (EditorCircWall* cw = dynamic_cast<EditorCircWall*>(&w)) {
+            out.circs.push_back(MapEditorOverlayCirc(room.x, room.y, cw->x, cw->y, cw->radiusOuter));
+            out.circIsGround.push_back(true);
+            out.circOrigIndex.push_back(static_cast<int>(i));
+        }
+        else if (EditorTriWall* tw = dynamic_cast<EditorTriWall*>(&w)) {
+            out.tris.push_back(MapEditorOverlayTri(room.x, room.y, tw->x1, tw->y1, tw->x2, tw->y2, tw->x3, tw->y3));
+            out.triIsGround.push_back(true);
+            out.triOrigIndex.push_back(static_cast<int>(i));
+        }
+    }
     for (int t = 0; t < 2; ++t)
         for (size_t i = 0; i < doc.team[t].flags.size(); ++i) {
             const EditorMapArea& a = doc.team[t].flags[i];
@@ -1318,15 +1359,37 @@ static void mapEditor_buildHitCandidates(EditorMap& doc, RoomCoords room, MapEdi
         }
 }
 
-// Fetches the selected shape's live EditorRectWall*, or NULL if the selection isn't currently a
-// rect -- used both to read current geometry (persistent selection outline, move/resize preview
-// starting point) and to mutate it directly (on commit).
-static EditorRectWall* mapEditor_selectionRectWall(EditorMap& doc, const MapEditorSelection& sel) throw () {
+// Fetches the selected wall/ground shape's live EditorWall*, or NULL if the selection isn't
+// currently a Wall/Ground kind at all (i.e. it's a Flag/Spawn or None) -- the one primitive every
+// shape-generic operation (texture-cycle, move, the selection/preview draw block, and
+// mapEditor_selectionRectWall below) builds on.
+static EditorWall* mapEditor_selectionWall(EditorMap& doc, const MapEditorSelection& sel) throw () {
     if (sel.kind != MapEditorSelection::Wall && sel.kind != MapEditorSelection::Ground)
         return 0;
     EditorRoom& r = doc.room(sel.roomX, sel.roomY);
-    EditorWall& w = (sel.kind == MapEditorSelection::Wall) ? r.wallAt(sel.index) : r.groundAt(sel.index);
-    return dynamic_cast<EditorRectWall*>(&w);
+    return &((sel.kind == MapEditorSelection::Wall) ? r.wallAt(sel.index) : r.groundAt(sel.index));
+}
+
+// Fetches the selected shape's live EditorRectWall*, or NULL if the selection isn't currently a
+// rect -- used where the caller specifically needs rect geometry (x1/y1/x2/y2), e.g. the 4-corner
+// resize handles, which only rects have.
+static EditorRectWall* mapEditor_selectionRectWall(EditorMap& doc, const MapEditorSelection& sel) throw () {
+    return dynamic_cast<EditorRectWall*>(mapEditor_selectionWall(doc, sel));
+}
+
+// Applies a move delta to whichever concrete shape 'w' actually is -- rect: shift both corners;
+// tri: shift all three vertices; circ: shift the center only (radius is unaffected by a move).
+static void mapEditor_moveWall(EditorWall* w, double dx, double dy) throw () {
+    if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(w)) {
+        rw->x1 += dx; rw->x2 += dx; rw->y1 += dy; rw->y2 += dy;
+    }
+    else if (EditorTriWall* tw = dynamic_cast<EditorTriWall*>(w)) {
+        tw->x1 += dx; tw->x2 += dx; tw->x3 += dx;
+        tw->y1 += dy; tw->y2 += dy; tw->y3 += dy;
+    }
+    else if (EditorCircWall* cw = dynamic_cast<EditorCircWall*>(w)) {
+        cw->x += dx; cw->y += dy;
+    }
 }
 
 // Same idea for a flag/spawn selection's EditorMapArea*.
@@ -1510,6 +1573,8 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
             else if (sc == KEY_3) { tool = MET_GroundRect; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
             else if (sc == KEY_4) { tool = MET_Flag; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
             else if (sc == KEY_5) { tool = MET_Spawn; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
+            else if (sc == KEY_6) { tool = MET_WallCirc;   selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
+            else if (sc == KEY_7) { tool = MET_GroundCirc; selection = MapEditorSelection(); drag.mode = MapEditorDrag::None; }
             else if (sc == KEY_TAB) {
                 if (tool == MET_Select && (selection.kind == MapEditorSelection::Flag || selection.kind == MapEditorSelection::Spawn)) {
                     // Cycle the *selected* shape's team -- a committed edit (moves the entry between
@@ -1558,8 +1623,10 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 const int delta = (sc == KEY_CLOSEBRACE) ? 1 : -1;
                 if (tool == MET_Select && (selection.kind == MapEditorSelection::Wall || selection.kind == MapEditorSelection::Ground)) {
                     EditorMap backup = mapEditorState.doc;
-                    EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection);
-                    rw->texture = positiveModulo(rw->texture + delta, 8);
+                    // texture/alpha live on the EditorWall base class itself, so this needs no
+                    // concrete-type downcast at all -- works uniformly for rect/circ/tri (Phase 4).
+                    EditorWall* w = mapEditor_selectionWall(mapEditorState.doc, selection);
+                    w->texture = positiveModulo(w->texture + delta, 8);
                     if (!mapEditor_rebuildRenderMap()) {
                         mapEditorState.doc = backup;
                         statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
@@ -1570,7 +1637,7 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                         graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
                     }
                 }
-                else if (tool == MET_WallRect || tool == MET_GroundRect)
+                else if (tool == MET_WallRect || tool == MET_GroundRect || tool == MET_WallCirc || tool == MET_GroundCirc)
                     currentTexture = positiveModulo(currentTexture + delta, 8);
             }
             else if (sc == KEY_DEL) {
@@ -1627,6 +1694,12 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                     drag.startX = drag.curX = wc.x;
                     drag.startY = drag.curY = wc.y;
                 }
+                else if (tool == MET_WallCirc || tool == MET_GroundCirc) {
+                    drag.mode = MapEditorDrag::NewCirc;
+                    drag.room = wc.room;
+                    drag.startX = drag.curX = wc.x; // circle center, fixed for the whole drag
+                    drag.startY = drag.curY = wc.y;
+                }
                 else if (tool == MET_Flag || tool == MET_Spawn) {
                     drag.mode = MapEditorDrag::NewPoint;
                     drag.room = wc.room;
@@ -1635,10 +1708,16 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 }
                 else { // MET_Select
                     int corner = -1;
+                    bool circEdge = false;
                     if (selection.kind != MapEditorSelection::None && selection.roomX == wc.room.x && selection.roomY == wc.room.y) {
-                        if (EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection)) {
+                        EditorWall* w = mapEditor_selectionWall(mapEditorState.doc, selection);
+                        if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(w)) {
                             const MapEditorOverlayRect selRect(wc.room.x, wc.room.y, rw->x1, rw->y1, rw->x2, rw->y2);
                             corner = graphics.mapEditorHitTestCorner(mouse_x, mouse_y, selRect);
+                        }
+                        else if (EditorCircWall* cw = dynamic_cast<EditorCircWall*>(w)) {
+                            const MapEditorOverlayCirc selCirc(wc.room.x, wc.room.y, cw->x, cw->y, cw->radiusOuter);
+                            circEdge = graphics.mapEditorHitTestCircEdge(mouse_x, mouse_y, selCirc);
                         }
                     }
                     if (corner >= 0) {
@@ -1648,15 +1727,43 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                         drag.startX = drag.curX = wc.x;
                         drag.startY = drag.curY = wc.y;
                     }
+                    else if (circEdge) {
+                        drag.mode = MapEditorDrag::ResizeCirc;
+                        drag.room = wc.room;
+                        drag.startX = drag.curX = wc.x;
+                        drag.startY = drag.curY = wc.y;
+                    }
                     else {
                         MapEditorHitCandidates cand;
                         mapEditor_buildHitCandidates(mapEditorState.doc, wc.room, cand);
-                        const MapEditorHitResult hit = graphics.mapEditorHitTest(mouse_x, mouse_y, cand.rects, cand.points);
+                        const MapEditorHitResult hit = graphics.mapEditorHitTest(mouse_x, mouse_y, cand.rects, cand.circs, cand.tris, cand.points);
                         if (hit.kind == MapEditorHitResult::Rect) {
                             selection.kind = cand.rectIsGround[hit.index] ? MapEditorSelection::Ground : MapEditorSelection::Wall;
                             selection.roomX = wc.room.x;
                             selection.roomY = wc.room.y;
                             selection.index = cand.rectOrigIndex[hit.index];
+                            selection.team = 0;
+                            drag.mode = MapEditorDrag::Move;
+                            drag.room = wc.room;
+                            drag.startX = drag.curX = wc.x;
+                            drag.startY = drag.curY = wc.y;
+                        }
+                        else if (hit.kind == MapEditorHitResult::Circ) {
+                            selection.kind = cand.circIsGround[hit.index] ? MapEditorSelection::Ground : MapEditorSelection::Wall;
+                            selection.roomX = wc.room.x;
+                            selection.roomY = wc.room.y;
+                            selection.index = cand.circOrigIndex[hit.index];
+                            selection.team = 0;
+                            drag.mode = MapEditorDrag::Move;
+                            drag.room = wc.room;
+                            drag.startX = drag.curX = wc.x;
+                            drag.startY = drag.curY = wc.y;
+                        }
+                        else if (hit.kind == MapEditorHitResult::Tri) {
+                            selection.kind = cand.triIsGround[hit.index] ? MapEditorSelection::Ground : MapEditorSelection::Wall;
+                            selection.roomX = wc.room.x;
+                            selection.roomY = wc.room.y;
+                            selection.index = cand.triOrigIndex[hit.index];
                             selection.team = 0;
                             drag.mode = MapEditorDrag::Move;
                             drag.room = wc.room;
@@ -1711,6 +1818,33 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                         }
                     }
                 }
+                else if (drag.mode == MapEditorDrag::NewCirc) {
+                    // dx/dy above are drag.curX/Y - drag.startX/Y, and drag.startX/Y is the fixed
+                    // center from press time (see the MET_WallCirc/MET_GroundCirc press handler) --
+                    // so the drag distance is exactly the new circle's radius.
+                    const double radius = sqrt(dx * dx + dy * dy);
+                    if (radius >= 1) { // discard a degenerate (near-zero-radius) drag silently, mirrors NewRect
+                        EditorMap backup = mapEditorState.doc;
+                        // Always a full solid disc (radiusInner=0, angle1=angle2=0, the sentinel
+                        // Map::parse_line requires for "full circle") -- ring/sector authoring is
+                        // deferred, see the plan file.
+                        EditorCircWall* w = new EditorCircWall(drag.startX, drag.startY, radius, 0, 0, 0, currentTexture, 255);
+                        EditorRoom& r = mapEditorState.doc.room(drag.room.x, drag.room.y);
+                        if (tool == MET_WallCirc)
+                            r.addWall(w);
+                        else
+                            r.addGround(w);
+                        if (!mapEditor_rebuildRenderMap()) {
+                            mapEditorState.doc = backup;
+                            statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                        }
+                        else {
+                            statusMessage.clear();
+                            graphics.update_minimap_background(mapEditorState.renderMap);
+                            graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                        }
+                    }
+                }
                 else if (drag.mode == MapEditorDrag::NewPoint) {
                     // No degenerate-drag discard here -- a plain click (no movement) is the normal
                     // way to place a flag/spawn point.
@@ -1742,10 +1876,8 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 else if (drag.mode == MapEditorDrag::Move) {
                     if (absDx >= 0.5 || absDy >= 0.5) { // discard a degenerate (effectively-no-op) move silently
                         EditorMap backup = mapEditorState.doc;
-                        if (selection.kind == MapEditorSelection::Wall || selection.kind == MapEditorSelection::Ground) {
-                            EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection);
-                            rw->x1 += dx; rw->x2 += dx; rw->y1 += dy; rw->y2 += dy;
-                        }
+                        if (selection.kind == MapEditorSelection::Wall || selection.kind == MapEditorSelection::Ground)
+                            mapEditor_moveWall(mapEditor_selectionWall(mapEditorState.doc, selection), dx, dy);
                         else {
                             EditorMapArea* a = mapEditor_selectionArea(mapEditorState.doc, selection);
                             a->x1 += dx; a->x2 += dx; a->y1 += dy; a->y2 += dy;
@@ -1786,6 +1918,27 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                         graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
                     }
                 }
+                else if (drag.mode == MapEditorDrag::ResizeCirc) {
+                    EditorMap backup = mapEditorState.doc;
+                    // Fetched from the live (post-backup-snapshot) doc, same as rect Resize above --
+                    // EditorRoom::operator= deep-copies via clone(), so 'backup' is unaffected by
+                    // mutating this pointer. Delta is computed from the circle's own live center, not
+                    // drag.startX/Y (which only recorded where the edge-handle was originally clicked),
+                    // mirroring how rect-Resize reads rw->x1 etc. directly rather than trusting the
+                    // press position.
+                    EditorCircWall* cw = dynamic_cast<EditorCircWall*>(mapEditor_selectionWall(mapEditorState.doc, selection));
+                    const double rdx = drag.curX - cw->x, rdy = drag.curY - cw->y;
+                    cw->radiusOuter = sqrt(rdx * rdx + rdy * rdy);
+                    if (cw->radiusOuter < 1 || !mapEditor_rebuildRenderMap()) {
+                        mapEditorState.doc = backup;
+                        statusMessage = _("Edit rejected: overlaps a wall or leaves too little space.");
+                    }
+                    else {
+                        statusMessage.clear();
+                        graphics.update_minimap_background(mapEditorState.renderMap);
+                        graphics.mapChanged(); // invalidate the room-bitmap cache -- see the plan file's Phase 3 caching note
+                    }
+                }
                 drag.mode = MapEditorDrag::None;
             }
         }
@@ -1816,15 +1969,18 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
         {
             string toolName;
             switch (tool) {
-            case MET_Select:     toolName = _("Select"); break;
-            case MET_WallRect:   toolName = _("Wall");   break;
-            case MET_GroundRect: toolName = _("Ground"); break;
-            case MET_Flag:       toolName = _("Flag");   break;
-            default:             toolName = _("Spawn");  break;
+            case MET_Select:      toolName = _("Select");        break;
+            case MET_WallRect:    toolName = _("Wall");          break;
+            case MET_GroundRect:  toolName = _("Ground");        break;
+            case MET_Flag:        toolName = _("Flag");          break;
+            case MET_Spawn:       toolName = _("Spawn");         break;
+            case MET_WallCirc:    toolName = _("Wall circle");   break;
+            default:               /* MET_GroundCirc */
+                                  toolName = _("Ground circle"); break;
             }
             ostringstream status;
             status << _("Tool: $1", toolName);
-            if (tool == MET_WallRect || tool == MET_GroundRect)
+            if (tool == MET_WallRect || tool == MET_GroundRect || tool == MET_WallCirc || tool == MET_GroundCirc)
                 status << "  " << _("Texture: $1", itoa(currentTexture));
             if (tool == MET_Flag || tool == MET_Spawn) {
                 const string teamName = (currentTeam == 0) ? _("Red") : (currentTeam == 1) ? _("Blue") : _("Wild");
@@ -1834,13 +1990,25 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 status << "  " << statusMessage;
 
             MapEditorOverlayRect selRect, previewRect;
+            MapEditorOverlayCirc selCirc, previewCirc;
+            MapEditorOverlayTri selTri, previewTri;
             MapEditorOverlayPoint selPoint, previewPoint;
-            bool haveSelRect = false, haveSelPoint = false, havePreviewRect = false, havePreviewPoint = false;
+            bool haveSelRect = false, haveSelCirc = false, haveSelTri = false, haveSelPoint = false;
+            bool havePreviewRect = false, havePreviewCirc = false, havePreviewTri = false, havePreviewPoint = false;
 
             if (selection.kind == MapEditorSelection::Wall || selection.kind == MapEditorSelection::Ground) {
-                if (EditorRectWall* rw = mapEditor_selectionRectWall(mapEditorState.doc, selection)) {
+                EditorWall* w = mapEditor_selectionWall(mapEditorState.doc, selection);
+                if (EditorRectWall* rw = dynamic_cast<EditorRectWall*>(w)) {
                     selRect = MapEditorOverlayRect(selection.roomX, selection.roomY, rw->x1, rw->y1, rw->x2, rw->y2);
                     haveSelRect = true;
+                }
+                else if (EditorCircWall* cw = dynamic_cast<EditorCircWall*>(w)) {
+                    selCirc = MapEditorOverlayCirc(selection.roomX, selection.roomY, cw->x, cw->y, cw->radiusOuter);
+                    haveSelCirc = true;
+                }
+                else if (EditorTriWall* tw = dynamic_cast<EditorTriWall*>(w)) {
+                    selTri = MapEditorOverlayTri(selection.roomX, selection.roomY, tw->x1, tw->y1, tw->x2, tw->y2, tw->x3, tw->y3);
+                    haveSelTri = true;
                 }
             }
             else if (selection.kind == MapEditorSelection::Flag || selection.kind == MapEditorSelection::Spawn) {
@@ -1855,6 +2023,11 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                                                     max(drag.startX, drag.curX), max(drag.startY, drag.curY));
                 havePreviewRect = true;
             }
+            else if (drag.mode == MapEditorDrag::NewCirc) {
+                const double rdx = drag.curX - drag.startX, rdy = drag.curY - drag.startY;
+                previewCirc = MapEditorOverlayCirc(drag.room.x, drag.room.y, drag.startX, drag.startY, sqrt(rdx * rdx + rdy * rdy));
+                havePreviewCirc = true;
+            }
             else if (drag.mode == MapEditorDrag::NewPoint) {
                 previewPoint = MapEditorOverlayPoint(drag.room.x, drag.room.y, drag.curX, drag.curY);
                 havePreviewPoint = true;
@@ -1863,6 +2036,17 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 const double dx = drag.curX - drag.startX, dy = drag.curY - drag.startY;
                 previewRect = MapEditorOverlayRect(drag.room.x, drag.room.y, selRect.x1 + dx, selRect.y1 + dy, selRect.x2 + dx, selRect.y2 + dy);
                 havePreviewRect = true;
+            }
+            else if (drag.mode == MapEditorDrag::Move && haveSelCirc) {
+                const double dx = drag.curX - drag.startX, dy = drag.curY - drag.startY;
+                previewCirc = MapEditorOverlayCirc(drag.room.x, drag.room.y, selCirc.x + dx, selCirc.y + dy, selCirc.radius);
+                havePreviewCirc = true;
+            }
+            else if (drag.mode == MapEditorDrag::Move && haveSelTri) {
+                const double dx = drag.curX - drag.startX, dy = drag.curY - drag.startY;
+                previewTri = MapEditorOverlayTri(drag.room.x, drag.room.y, selTri.x1 + dx, selTri.y1 + dy,
+                                                  selTri.x2 + dx, selTri.y2 + dy, selTri.x3 + dx, selTri.y3 + dy);
+                havePreviewTri = true;
             }
             else if (drag.mode == MapEditorDrag::Move && haveSelPoint) {
                 const double dx = drag.curX - drag.startX, dy = drag.curY - drag.startY;
@@ -1880,10 +2064,17 @@ bool GuiClient::mapEditor_start(volatile bool* quitFlag) throw () {
                 previewRect = MapEditorOverlayRect(drag.room.x, drag.room.y, min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2));
                 havePreviewRect = true;
             }
+            else if (drag.mode == MapEditorDrag::ResizeCirc && haveSelCirc) {
+                const double rdx = drag.curX - selCirc.x, rdy = drag.curY - selCirc.y;
+                previewCirc = MapEditorOverlayCirc(drag.room.x, drag.room.y, selCirc.x, selCirc.y, sqrt(rdx * rdx + rdy * rdy));
+                havePreviewCirc = true;
+            }
 
             graphics.draw_mapeditor_edit_overlay(status.str(),
-                havePreviewRect ? &previewRect : NULL, havePreviewPoint ? &previewPoint : NULL,
-                haveSelRect ? &selRect : NULL, haveSelPoint ? &selPoint : NULL);
+                havePreviewRect ? &previewRect : NULL, havePreviewCirc ? &previewCirc : NULL,
+                havePreviewTri ? &previewTri : NULL, havePreviewPoint ? &previewPoint : NULL,
+                haveSelRect ? &selRect : NULL, haveSelCirc ? &selCirc : NULL,
+                haveSelTri ? &selTri : NULL, haveSelPoint ? &selPoint : NULL);
         }
 
         graphics.endDraw();

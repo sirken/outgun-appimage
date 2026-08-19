@@ -2238,6 +2238,24 @@ void Graphics::drawMapEditorRectOutline(const MapEditorOverlayRect& r, int col) 
     rect(drawbuf, min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2), col);
 }
 
+void Graphics::drawMapEditorCircOutline(const MapEditorOverlayCirc& c, int col) throw () {
+    int px, py;
+    if (!projectMapEditorPoint(c.roomX, c.roomY, c.x, c.y, px, py))
+        return;
+    dcircle(drawbuf, px, py, pf_scale(c.radius), col);
+}
+
+void Graphics::drawMapEditorTriOutline(const MapEditorOverlayTri& t, int col) throw () {
+    int x1, y1, x2, y2, x3, y3;
+    if (!projectMapEditorPoint(t.roomX, t.roomY, t.x1, t.y1, x1, y1) ||
+        !projectMapEditorPoint(t.roomX, t.roomY, t.x2, t.y2, x2, y2) ||
+        !projectMapEditorPoint(t.roomX, t.roomY, t.x3, t.y3, x3, y3))
+        return;
+    line(drawbuf, x1, y1, x2, y2, col);
+    line(drawbuf, x2, y2, x3, y3, col);
+    line(drawbuf, x3, y3, x1, y1, col);
+}
+
 // Tolerances are in screen pixels, independent of zoom -- deliberately generous since map editing
 // happens at a wide range of zoom levels (mapEditorState.zoom, 1..20 visible rooms) and a precise
 // pixel-exact click would get harder the more zoomed out the view is.
@@ -2245,10 +2263,13 @@ static const int mapEditorRectHitMarginPx = 5;
 static const int mapEditorPointHitRadiusPx = 10;
 static const int mapEditorCornerHitRadiusPx = 8;
 
-MapEditorHitResult Graphics::mapEditorHitTest(int screenX, int screenY, const vector<MapEditorOverlayRect>& rects, const vector<MapEditorOverlayPoint>& points) const throw () {
-    // Rects before points, in the caller's own order (walls before ground, flags before spawns) --
-    // together this gives the documented walls -> ground -> flags -> spawns tie-break with no extra
-    // bookkeeping here.
+MapEditorHitResult Graphics::mapEditorHitTest(int screenX, int screenY, const vector<MapEditorOverlayRect>& rects,
+                                               const vector<MapEditorOverlayCirc>& circs, const vector<MapEditorOverlayTri>& tris,
+                                               const vector<MapEditorOverlayPoint>& points) const throw () {
+    // Rects, then circs, then tris, then points, in the caller's own per-list order (walls before
+    // ground, flags before spawns) -- together this gives the documented walls -> ground -> flags ->
+    // spawns tie-break within one shape kind, with the fixed rects->circs->tris check order across
+    // different shape kinds being an accepted simplification (see MapEditorHitResult's own comment).
     for (size_t i = 0; i < rects.size(); ++i) {
         int x1, y1, x2, y2;
         if (!projectMapEditorPoint(rects[i].roomX, rects[i].roomY, rects[i].x1, rects[i].y1, x1, y1) ||
@@ -2259,6 +2280,36 @@ MapEditorHitResult Graphics::mapEditorHitTest(int screenX, int screenY, const ve
         if (screenX >= loX && screenX <= hiX && screenY >= loY && screenY <= hiY) {
             MapEditorHitResult r;
             r.kind = MapEditorHitResult::Rect;
+            r.index = static_cast<int>(i);
+            return r;
+        }
+    }
+    for (size_t i = 0; i < circs.size(); ++i) {
+        int cx, cy;
+        if (!projectMapEditorPoint(circs[i].roomX, circs[i].roomY, circs[i].x, circs[i].y, cx, cy))
+            continue;
+        const int dx = screenX - cx, dy = screenY - cy;
+        const int radiusPx = pf_scale(circs[i].radius) + mapEditorRectHitMarginPx; // pf_scale already returns int
+        if (dx * dx + dy * dy <= radiusPx * radiusPx) {
+            MapEditorHitResult r;
+            r.kind = MapEditorHitResult::Circ;
+            r.index = static_cast<int>(i);
+            return r;
+        }
+    }
+    for (size_t i = 0; i < tris.size(); ++i) {
+        int x1, y1, x2, y2, x3, y3;
+        if (!projectMapEditorPoint(tris[i].roomX, tris[i].roomY, tris[i].x1, tris[i].y1, x1, y1) ||
+            !projectMapEditorPoint(tris[i].roomX, tris[i].roomY, tris[i].x2, tris[i].y2, x2, y2) ||
+            !projectMapEditorPoint(tris[i].roomX, tris[i].roomY, tris[i].x3, tris[i].y3, x3, y3))
+            continue;
+        // Bounding-box test only, same rigor as the rect test above (not exact point-in-triangle) --
+        // consistent with this codebase's existing "generous tolerance" hit-test style.
+        const int loX = min(min(x1, x2), x3) - mapEditorRectHitMarginPx, hiX = max(max(x1, x2), x3) + mapEditorRectHitMarginPx;
+        const int loY = min(min(y1, y2), y3) - mapEditorRectHitMarginPx, hiY = max(max(y1, y2), y3) + mapEditorRectHitMarginPx;
+        if (screenX >= loX && screenX <= hiX && screenY >= loY && screenY <= hiY) {
+            MapEditorHitResult r;
+            r.kind = MapEditorHitResult::Tri;
             r.index = static_cast<int>(i);
             return r;
         }
@@ -2298,14 +2349,29 @@ int Graphics::mapEditorHitTestCorner(int screenX, int screenY, const MapEditorOv
     return best;
 }
 
+bool Graphics::mapEditorHitTestCircEdge(int screenX, int screenY, const MapEditorOverlayCirc& circ) const throw () {
+    int cx, cy;
+    if (!projectMapEditorPoint(circ.roomX, circ.roomY, circ.x, circ.y, cx, cy))
+        return false;
+    const int ex = cx + pf_scale(circ.radius), ey = cy; // the one resize handle, at world angle 0 (pf_scale already returns int)
+    const int dx = screenX - ex, dy = screenY - ey;
+    return dx * dx + dy * dy <= mapEditorCornerHitRadiusPx * mapEditorCornerHitRadiusPx;
+}
+
 void Graphics::draw_mapeditor_edit_overlay(const string& statusLine,
-                                            const MapEditorOverlayRect* previewRect, const MapEditorOverlayPoint* previewPoint,
-                                            const MapEditorOverlayRect* selectedRect, const MapEditorOverlayPoint* selectedPoint) throw () {
+                                            const MapEditorOverlayRect* previewRect, const MapEditorOverlayCirc* previewCirc,
+                                            const MapEditorOverlayTri* previewTri, const MapEditorOverlayPoint* previewPoint,
+                                            const MapEditorOverlayRect* selectedRect, const MapEditorOverlayCirc* selectedCirc,
+                                            const MapEditorOverlayTri* selectedTri, const MapEditorOverlayPoint* selectedPoint) throw () {
     if (!statusLine.empty())
         print_text_border_check_bg(statusLine, 4, 4, colour[Colour::menu_value], colour[Colour::text_border], -1);
 
     if (selectedRect)
         drawMapEditorRectOutline(*selectedRect, colour[Colour::mapeditor_selection]);
+    if (selectedCirc)
+        drawMapEditorCircOutline(*selectedCirc, colour[Colour::mapeditor_selection]);
+    if (selectedTri)
+        drawMapEditorTriOutline(*selectedTri, colour[Colour::mapeditor_selection]);
     if (selectedPoint) {
         int px, py;
         if (projectMapEditorPoint(selectedPoint->roomX, selectedPoint->roomY, selectedPoint->x, selectedPoint->y, px, py))
@@ -2316,6 +2382,10 @@ void Graphics::draw_mapeditor_edit_overlay(const string& statusLine,
     // relevant thing while actively dragging.
     if (previewRect)
         drawMapEditorRectOutline(*previewRect, colour[Colour::mapeditor_preview]);
+    if (previewCirc)
+        drawMapEditorCircOutline(*previewCirc, colour[Colour::mapeditor_preview]);
+    if (previewTri)
+        drawMapEditorTriOutline(*previewTri, colour[Colour::mapeditor_preview]);
     if (previewPoint) {
         int px, py;
         if (projectMapEditorPoint(previewPoint->roomX, previewPoint->roomY, previewPoint->x, previewPoint->y, px, py))

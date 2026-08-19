@@ -108,7 +108,7 @@ Some of these may already exist in later phases, but these items can be addresse
 - See doc folder html pages for mapping tutorials and map specifications
 - Ability to launch the map right from the editor for testing. Have a few pre-launch settings such as bot number and skill, maybe some other basic settings that make sense?
 - Persistent map editor state, so when we come back to the editor it remains as we left it. This only applies to when we're running the game. If we fully quit out of the game, the map editor is back to a clean slate
-- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests), Phase 2 (menu entry + read-only viewer: pick an existing map, pan/zoom it with the real minimap/HUD-consistent rendering, mouse coordinate readout), Phase 2.5 (two-column picker screen: live search filter with default focus, grouped map list, minimap preview + stats panel), and Phase 3 ("New map" button + core mutation: draw/move/resize/delete rectangular walls and ground areas, place/remove flags and spawn points with team cycling, save to disk, and a free structural validator) are done -- see "Done" below. Remaining: full geometry (triangles/circles) + texture theme preview, help screen, then test-launch.
+- Status: large feature, being built in phases. Phase 1 (foundation: internal document model + map-text serializer + automated round-trip tests), Phase 2 (menu entry + read-only viewer: pick an existing map, pan/zoom it with the real minimap/HUD-consistent rendering, mouse coordinate readout), Phase 2.5 (two-column picker screen: live search filter with default focus, grouped map list, minimap preview + stats panel), Phase 3 ("New map" button + core mutation: draw/move/resize/delete rectangular walls and ground areas, place/remove flags and spawn points with team cycling, save to disk, and a free structural validator), and Phase 4 (generalized Select-tool support -- move/texture-cycle/delete -- for any wall shape, plus a Circle wall/ground creation+resize tool) are done -- see "Done" below. Remaining: triangle creation/resize tool, ring/sector circle authoring, texture theme preview, help screen, then test-launch.
 - Decided: editor-saved maps go in the existing cmaps/ directory; "bot skill" in test-launch just means bot_ping, no separate concept needed
 - Still open: how should "launch this map for testing" actually start a server on the exact map being edited -- new Server/ServerExternalSettings plumbing (forced start map + bot count/ping, bypassing the normal maps/ directory scan), or scripting the existing vote+/forcemap admin flow instead?
 
@@ -135,6 +135,67 @@ Some of these may already exist in later phases, but these items can be addresse
 
 
 # Done
+
+- ~~Map editor Phase 4: generalize Select-tool support to any wall shape,
+  add a Circle wall/ground tool~~: fixes a latent gap where pre-existing
+  `EditorTriWall`/`EditorCircWall` shapes in a loaded map (several shipped
+  maps have them, e.g. `cmaps/cepe.txt`) were completely invisible to the
+  Select tool -- `mapEditor_buildHitCandidates()` only ever recognized
+  `EditorRectWall` via `dynamic_cast`, silently skipping everything else.
+  Generalized hit-testing (new `MapEditorOverlayCirc`/`Tri` structs and
+  `Circ`/`Tri` `MapEditorHitResult::Kind` values, `graphics.h`/`.cpp`),
+  move (new `mapEditor_moveWall()` dispatch helper: rect shifts both
+  corners, tri shifts all three vertices, circ shifts its center only),
+  and delete (already fully generic, no change needed) now work for any
+  shape. Texture-cycle got simpler, not just more general: since
+  `texture`/`alpha` live on the `EditorWall` base class itself, it no
+  longer needs a concrete-type downcast at all. This also closes a latent
+  null-deref crash bug in three call sites of `mapEditor_selectionRectWall`
+  that could never fire before (nothing but rects was ever selectable),
+  but would have the moment tri/circ became selectable without this fix.
+
+  New Circle tool (`MET_WallCirc`/`MET_GroundCirc`, keys 6/7): a direct
+  generalization of the rect tool -- press sets a fixed center, drag shows
+  a live radius preview, release creates a full solid disc
+  (`radiusInner=0, angle1=angle2=0`, the exact sentinel `Map::parse_line`
+  requires for "full circle"). Resize uses one edge-handle at world angle
+  0 (`center.x + radius, center.y`), hit-tested only against the
+  currently-selected circle (same precedent as the existing rect
+  corner-hit-test) via a new `Graphics::mapEditorHitTestCircEdge()`;
+  dragging it sets a new radius from the live distance to the circle's own
+  center. `MapEditorDrag::Mode` gained `NewCirc`/`ResizeCirc` as fully
+  distinct modes rather than overloading the existing `corner` field with
+  a per-shape-reinterpreted meaning, keeping `drag.mode`'s dispatch
+  self-documenting.
+
+  Explicitly deferred to a later phase (each either materially larger/
+  more novel, or unrelated): triangle creation (a 3-point placement
+  gesture with no precedent anywhere in this editor) and per-vertex
+  resize -- though triangles *are* now selectable/movable/deletable/
+  texture-cyclable, same marginal cost as circles once the generic
+  dispatch exists; ring/sector circle authoring (`radiusInner > 0` or a
+  partial angle range) -- every circle this phase creates or resizes is a
+  full disc, so only `Graphics::draw_circ_wall`'s simple single-
+  `dcirclefill()` fast path is ever exercised, never its much more
+  complex ring/sector rendering; texture theme preview -- unrelated
+  concern.
+
+  Zero document-model changes needed -- `EditorWall`/`EditorRoom`/
+  `EditorMap`'s `addWall/addGround/wallAt/groundAt/eraseWall/eraseGround`,
+  `exportText`/`importFrom`, and `Map::parse_line`'s `"T"`/`"C"` handling
+  were already fully generic from Phase 1, confirmed via real shipped
+  maps containing triangle/circle walls that already round-trip
+  correctly -- so `mapEditor_rebuildRenderMap()`'s existing backup/
+  reparse/rollback commit protocol validates every new circle edit for
+  free, exactly as it already does for rects.
+
+  Full clean rebuild (`outgun`, `outgun-ded`) and `mapeditor_roundtrip`
+  (47/47, unaffected -- this phase touches only interactive editing code,
+  never the document model) verified. Interactive UI behavior (creating/
+  moving/resizing a circle, selecting/moving/deleting a pre-existing
+  triangle, texture-cycling either, save/reload round-trip) is UI
+  behavior for manual verification, per the checklist handed off
+  alongside this change.
 
 - ~~Map version number needs to be changed in the bug report policy
   screen, where it remains unchanged~~: root cause was in the data, not
