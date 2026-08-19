@@ -5,6 +5,8 @@
 
 - In the map editor main screen, there are a redraw issues on the top and right sides outside the main map. Hovering the mouse over these areas leaves ghost mouse cursors artifacts sometimes. Hovering over the main map near the right side, the mouse stats text such as "room 1,0  (28x262)" leaves artifacts and ghost text on the minimap and the area below it.
 
+- In the map editor search box, the letter n does not type in the box.
+
 - ~~Let's look at the map boundary size. The map boundary outline that we changed from 1px to 2px shows thicker on the top and left, but some map sizes show it barely or not at all on the right and bottom. 1x1 doesn't show it at all on the right and bottom. 2x2 has it thin on the right and bottom. 3x3 it looks ok. I both 2x2 and 3x3 when you shift so the map boundaries are in the middle of the screen somewhere, you can see the boundary is slightly offset (probably 1px) down and right. The 2px red lines are not exactly centered in the walls.~~
 
 
@@ -19,6 +21,50 @@
 
 
 # Features
+
+## Keyboard shortcuts
+
+Ctrl + mousewheel = zoom in/out
+Ctrl + C = copy selected item
+Ctrl + V = paste at mouse location
+Ctrl + X = cut selected item
+Cut/copy/paste should work between any room
+
+TODO
+
+## Right-click menu
+
+Cut
+Copy
+Paste
+Lock
+Hide
+
+TODO
+
+
+## More Zoom options
+Ability to zoom even closer into a single room. Zooming to a single room is good, but we need to go closer for micro adjustments.
+
+## Objects & z-order
+Overlapping objects can be unselectable. One object takes priority and is clickable, another is not clickable unless you move the other one out of the way. We need a way to lock objects and hide objects without moving them.
+
+##  Map Objects toolbox
+- On the right side, under the minimap, add a Map Objects toolbox that shows all objects and layers. Many items in this list will probably look similar to the map text file. This box will need a scrollbar. Group by rooms. Make rooms collapsible. All are expanded by default.
+- Each group and object should have an eye icon to show/hide the entire group or individual item.
+- Each group and object should have a lock icon to make the group or item locked in place so it is not moveable.
+- Each item should be moveable to reorder it up or down the stack. Click + drag the item to move it, or use a keyboard shortcut.
+- Clicking an item in the toolbox selects it in the main editor and visa-versa.
+
+
+## Object settings
+- This probably goes in row 3 at the top for object settings when an object is selected. 
+- Add input boxes to manually set coordinates, sizes, and object-specfic settings for each object.
+- For rectangles there would be two sets of x and y coordinates and a texture setting.
+- For triangle 3 sets of coordinates and texture. 
+- For circle, center x and y, r1, r2, angle1, angle2 and texture.
+- Show object-specific configuration items for flags, spawn points, respawn points, and other objects
+
 
 ## Menu navigation
 ~~Change the menu navigation steps for the map editor. Currently we press 7 from the main menu and go into the map selection screen, but let's change this. Instead, go from the main menu directly into the editor and a new map. The level chooser screen will be moved into the Map > Open screen which hasn't been created yet.~~
